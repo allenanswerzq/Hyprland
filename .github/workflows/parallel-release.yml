@@ -1,0 +1,85 @@
+# Parallel Hyprland's release. Pushing a tag like parallel-v0.56.2-1 builds this
+# branch on Arch Linux from Omarchy's mirror, the packages an Omarchy machine
+# runs, and attaches hyprland-parallel-<version>.tar.gz to the tag's release.
+#
+# The tarball holds bin/Hyprland and our Aquamarine fork's library in lib/.
+# Hyprland loads that library from beside itself and the rest from /usr/lib,
+# so it runs as it is on Omarchy when the Hyprland there has the same version.
+name: Parallel release
+
+on:
+  push:
+    tags: ["parallel-v*"]
+
+permissions:
+  contents: write
+
+env:
+  AQUAMARINE_REPO: https://github.com/allenanswerzq/aquamarine
+  AQUAMARINE_REV: f214ecad35d0607ff4b9f9e35d2ae6c6c856577a
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install Omarchy's packages
+        run: |
+          echo 'Server = https://stable-mirror.omarchy.org/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+          pacman -Syyuu --noconfirm
+          # Arch's hyprland brings the libraries Hyprland runs with; the rest
+          # are what Arch builds it with.
+          pacman -S --noconfirm --needed git github-cli patchelf hyprland \
+            cmake glaze hyprland-protocols hyprwayland-scanner meson ninja xorgproto
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build Aquamarine
+        run: |
+          git clone "$AQUAMARINE_REPO" /tmp/aquamarine
+          git -C /tmp/aquamarine checkout "$AQUAMARINE_REV"
+          cmake -S /tmp/aquamarine -B /tmp/aquamarine/build -G Ninja \
+            -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr
+          cmake --build /tmp/aquamarine/build
+          cmake --install /tmp/aquamarine/build
+
+      - name: Build Hyprland
+        run: |
+          # As Arch does: its glaze is newer than the range Hyprland asks for.
+          sed -i '/find_package.glaze/s/7...<8 //' {.,hyprpm,start}/CMakeLists.txt
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr
+          cmake --build build --target Hyprland
+
+      - name: Pack
+        run: |
+          version=${GITHUB_REF_NAME#parallel-v}
+          name=hyprland-parallel-$version
+          aquamarine=$(readelf -d build/Hyprland | grep -o 'libaquamarine\.so\.[0-9]*')
+          mkdir -p "$name/bin" "$name/lib"
+          cp build/Hyprland "$name/bin/"
+          cp -L "/usr/lib/$aquamarine" "$name/lib/"
+          strip "$name/bin/Hyprland" "$name/lib/$aquamarine"
+          patchelf --set-rpath '$ORIGIN/../lib' "$name/bin/Hyprland"
+
+          # Hyprland must load our Aquamarine and find every other library.
+          ldd "$name/bin/Hyprland" | tee libraries.txt
+          grep -q "$aquamarine => .*/$name/" libraries.txt
+          ! grep 'not found' libraries.txt
+
+          tar -czf "$name.tar.gz" "$name"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "TARBALL=$name.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$TARBALL" -R "$GITHUB_REPOSITORY" \
+            --title "Parallel Hyprland $VERSION" \
+            --notes "Hyprland with HYPRLAND_HEADLESS_ONLY and Aquamarine $AQUAMARINE_REV, built on Omarchy's Arch mirror."
