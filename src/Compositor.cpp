@@ -311,12 +311,16 @@ void CCompositor::initServer(std::string socketName, int socketFd) {
     option.backendType        = Aquamarine::eBackendType::AQ_BACKEND_HEADLESS;
     option.backendRequestMode = Aquamarine::eBackendRequestMode::AQ_BACKEND_REQUEST_MANDATORY;
     implementations.emplace_back(option);
-    option.backendType        = Aquamarine::eBackendType::AQ_BACKEND_DRM;
-    option.backendRequestMode = Aquamarine::eBackendRequestMode::AQ_BACKEND_REQUEST_IF_AVAILABLE;
-    implementations.emplace_back(option);
-    option.backendType        = Aquamarine::eBackendType::AQ_BACKEND_WAYLAND;
-    option.backendRequestMode = Aquamarine::eBackendRequestMode::AQ_BACKEND_REQUEST_FALLBACK;
-    implementations.emplace_back(option);
+    // HYPRLAND_HEADLESS_ONLY: no display and no parent compositor, only
+    // headless outputs. It never touches the seat, so it can run beside a session.
+    if (!Env::envEnabled("HYPRLAND_HEADLESS_ONLY")) {
+        option.backendType        = Aquamarine::eBackendType::AQ_BACKEND_DRM;
+        option.backendRequestMode = Aquamarine::eBackendRequestMode::AQ_BACKEND_REQUEST_IF_AVAILABLE;
+        implementations.emplace_back(option);
+        option.backendType        = Aquamarine::eBackendType::AQ_BACKEND_WAYLAND;
+        option.backendRequestMode = Aquamarine::eBackendRequestMode::AQ_BACKEND_REQUEST_FALLBACK;
+        implementations.emplace_back(option);
+    }
 
     m_aqBackend = CBackend::create(implementations, options);
 
@@ -797,6 +801,17 @@ void CCompositor::startCompositor() {
     }
 
     Log::logger->log(Log::DEBUG, "Running on WAYLAND_DISPLAY: {}", m_wlDisplaySocket);
+
+    // Headless-only starts with one headless monitor, as a session starts with
+    // its displays, so clients have somewhere to map.
+    if (Env::envEnabled("HYPRLAND_HEADLESS_ONLY")) {
+        for (auto const& impl : m_aqBackend->getImplementations()) {
+            if (impl->type() == Aquamarine::AQ_BACKEND_HEADLESS) {
+                impl->createOutput();
+                break;
+            }
+        }
+    }
 
     g_pHyprRenderer->setCursorFromName("left_ptr");
 
