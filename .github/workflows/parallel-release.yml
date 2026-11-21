@@ -16,7 +16,7 @@ permissions:
 
 env:
   AQUAMARINE_REPO: https://github.com/allenanswerzq/aquamarine
-  AQUAMARINE_REV: 647e0dd3e9147c15dc7a9a06d793f9dc3c85a63e
+  AQUAMARINE_REV: f959102aa9758f34c6da03e6ca11beeaf59dd1d1
 
 defaults:
   run:
