@@ -13,6 +13,7 @@
 #include "../../../desktop/rule/windowRule/WindowRuleEffectContainer.hpp"
 #include "../../../desktop/view/LayerSurface.hpp"
 #include "../../../desktop/view/window/Window.hpp"
+#include "../../../managers/ActorManager.hpp"
 #include "../../../managers/input/InputManager.hpp"
 #include "../../../pointer/PointerManager.hpp"
 #include "../../../state/MonitorState.hpp"
@@ -44,7 +45,15 @@ namespace {
     };
 }
 
+// as with hyprctl, an actor's queries list only its own; the config's first load comes before any agent
+static bool owned(const auto& object) {
+    return !Actor::mgr() || Actor::mgr()->current()->owns(object);
+}
+
 static bool windowMatchesQuery(const PHLWINDOW& w, const SWindowQuery& query) {
+    if (!owned(w))
+        return false;
+
     if (query.monitor) {
         const auto mon = w->m_monitor.lock();
         if (mon != *query.monitor)
@@ -167,7 +176,7 @@ static int hlGetWorkspaces(lua_State* L) {
     int i = 1;
     for (const auto& wsRef : State::Workspace::state()->workspaces()) {
         const auto ws = wsRef.lock();
-        if (!ws)
+        if (!ws || !owned(ws))
             continue;
         Objects::CLuaWorkspace::push(L, ws);
         lua_rawseti(L, -2, i++);
@@ -232,6 +241,9 @@ static int hlGetMonitors(lua_State* L) {
     lua_newtable(L);
     int i = 1;
     for (const auto& mon : allMonitors ? State::monitorState()->allMonitors() : State::monitorState()->monitors()) {
+        if (!owned(mon))
+            continue;
+
         Objects::CLuaMonitor::push(L, mon);
         lua_rawseti(L, -2, i++);
     }
@@ -414,7 +426,7 @@ static int hlGetLayers(lua_State* L) {
     lua_newtable(L);
     int i = 1;
     for (const auto& mon : State::monitorState()->monitors()) {
-        if (query.monitor && mon != *query.monitor)
+        if ((query.monitor && mon != *query.monitor) || !owned(mon))
             continue;
 
         for (const auto& level : mon->m_layerSurfaceLayers) {

@@ -1,6 +1,7 @@
 #include "SessionLockManager.hpp"
 #include "../Compositor.hpp"
 #include "../config/ConfigValue.hpp"
+#include "ActorManager.hpp"
 #include "../protocols/FractionalScale.hpp"
 #include "../protocols/SessionLock.hpp"
 #include "../render/Renderer.hpp"
@@ -141,7 +142,8 @@ void CSessionLockManager::removeSendLockedTimer() {
 }
 
 bool CSessionLockManager::isSessionLocked() {
-    return PROTO::sessionLock->isLocked();
+    // the lock is the human's: an agent's monitor, focus and input keep working while the human's screen is locked
+    return PROTO::sessionLock->isLocked() && (!Actor::mgr() || Actor::mgr()->current()->isHuman());
 }
 
 WP<SSessionLockSurface> CSessionLockManager::getSessionLockSurfaceForMonitor(uint64_t id) {
@@ -165,8 +167,10 @@ void CSessionLockManager::onLockscreenRenderedOnMonitor(uint64_t id) {
         return;
 
     m_sessionLock->lockedMonitors.emplace(id);
-    const bool LOCKED =
-        std::ranges::all_of(State::monitorState()->monitors(), [this](auto m) { return !m->m_enabled || !m->m_dpmsStatus || m_sessionLock->lockedMonitors.contains(m->m_id); });
+    // the lock client never sees an agent's monitor, which stays unlocked, so it locks once the human's do
+    const bool LOCKED = std::ranges::all_of(State::monitorState()->monitors(), [this](auto m) {
+        return !m->m_enabled || !m->m_dpmsStatus || !Actor::mgr()->human()->owns(m) || m_sessionLock->lockedMonitors.contains(m->m_id);
+    });
 
     if (LOCKED && m_sessionLock->lock->good()) {
         removeSendLockedTimer();

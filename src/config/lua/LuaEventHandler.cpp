@@ -9,6 +9,7 @@
 #include "../../event/EventBus.hpp"
 #include "../../desktop/state/FocusState.hpp"
 #include "../../desktop/view/window/WindowStateTracker.hpp"
+#include "../../managers/ActorManager.hpp"
 #include <expected>
 #include <vector>
 
@@ -22,7 +23,21 @@ extern "C" {
 using namespace Config::Lua;
 using namespace Config::Lua::Objects;
 
+// The config is the human's, so its hooks see only what happens to the human: nothing an agent's apps do, and none
+// of the monitors and workspaces Hyprland makes for agents. Those come up as the human, so their owner tells them
+// apart. The config's first load comes before any agent
+static bool hidden(PHLMONITOR monitor) {
+    return Actor::mgr() && !Actor::mgr()->human()->owns(monitor);
+}
+
+static bool hidden(PHLWORKSPACE workspace) {
+    return Actor::mgr() && workspace && !Actor::mgr()->human()->owns(workspace);
+}
+
 void CLuaEventHandler::dispatch(const std::string& name, int nargs, const std::function<void(lua_State*)>& pushArgs) {
+    if (Actor::mgr() && !Actor::mgr()->current()->isHuman())
+        return;
+
     const auto it = m_callbacks.find(name);
     if (it == m_callbacks.end() || it->second.empty())
         return;
@@ -103,13 +118,24 @@ CLuaEventHandler::CLuaEventHandler(CLuaCaller& caller) : m_caller(caller) {
     m_listeners.push_back(bus()->m_events.layer.opened.listen([this](PHLLS ls) { dispatch("layer.opened", 1, [&](lua_State* L) { CLuaLayerSurface::push(L, ls); }); }));
     m_listeners.push_back(bus()->m_events.layer.closed.listen([this](PHLLS ls) { dispatch("layer.closed", 1, [&](lua_State* L) { CLuaLayerSurface::push(L, ls); }); }));
 
-    m_listeners.push_back(bus()->m_events.monitor.added.listen([this](PHLMONITOR mon) { dispatch("monitor.added", 1, [&](lua_State* L) { CLuaMonitor::push(L, mon); }); }));
-    m_listeners.push_back(bus()->m_events.monitor.removed.listen([this](PHLMONITOR mon) { dispatch("monitor.removed", 1, [&](lua_State* L) { CLuaMonitor::push(L, mon); }); }));
+    m_listeners.push_back(bus()->m_events.monitor.added.listen([this](PHLMONITOR mon) {
+        if (!hidden(mon))
+            dispatch("monitor.added", 1, [&](lua_State* L) { CLuaMonitor::push(L, mon); });
+    }));
+    m_listeners.push_back(bus()->m_events.monitor.removed.listen([this](PHLMONITOR mon) {
+        if (!hidden(mon))
+            dispatch("monitor.removed", 1, [&](lua_State* L) { CLuaMonitor::push(L, mon); });
+    }));
     m_listeners.push_back(bus()->m_events.monitor.focused.listen([this](PHLMONITOR mon) { dispatch("monitor.focused", 1, [&](lua_State* L) { CLuaMonitor::push(L, mon); }); }));
     m_listeners.push_back(bus()->m_events.monitor.layoutChanged.listen([this] { dispatch("monitor.layout_changed", 0, [](lua_State* L) {}); }));
 
-    m_listeners.push_back(bus()->m_events.workspace.active.listen([this](PHLWORKSPACE ws) { dispatch("workspace.active", 1, [&](lua_State* L) { CLuaWorkspace::push(L, ws); }); }));
+    m_listeners.push_back(bus()->m_events.workspace.active.listen([this](PHLWORKSPACE ws) {
+        if (!hidden(ws))
+            dispatch("workspace.active", 1, [&](lua_State* L) { CLuaWorkspace::push(L, ws); });
+    }));
     m_listeners.push_back(bus()->m_events.workspace.specialActive.listen([this](PHLWORKSPACE ws, PHLMONITOR mon) {
+        if (hidden(mon))
+            return;
         dispatch("workspace.special_active", 2, [&](lua_State* L) {
             CLuaWorkspace::push(L, ws);
             CLuaMonitor::push(L, mon);
@@ -117,22 +143,24 @@ CLuaEventHandler::CLuaEventHandler(CLuaCaller& caller) : m_caller(caller) {
     }));
     m_listeners.push_back(bus()->m_events.workspace.createdLate.listen([this](PHLWORKSPACEREF wsRef) {
         const auto ws = wsRef.lock();
-        if (!ws)
+        if (!ws || hidden(ws))
             return;
         dispatch("workspace.created", 1, [&](lua_State* L) { CLuaWorkspace::push(L, ws); });
     }));
     m_listeners.push_back(bus()->m_events.workspace.createdEarly.listen([this](PHLWORKSPACEREF wsRef) {
         const auto ws = wsRef.lock();
-        if (!ws)
+        if (!ws || hidden(ws))
             return;
         dispatch("workspace.created_early", 1, [&](lua_State* L) { CLuaWorkspace::push(L, ws); });
     }));
     m_listeners.push_back(bus()->m_events.workspace.removed.listen([this](PHLWORKSPACEREF wsRef) {
-        if (!wsRef)
+        if (!wsRef || hidden(wsRef.lock()))
             return;
         dispatch("workspace.removed", 1, [&](lua_State* L) { CLuaWorkspace::push(L, wsRef); });
     }));
     m_listeners.push_back(bus()->m_events.workspace.moveToMonitor.listen([this](PHLWORKSPACE ws, PHLMONITOR mon) {
+        if (hidden(mon))
+            return;
         dispatch("workspace.move_to_monitor", 2, [&](lua_State* L) {
             CLuaWorkspace::push(L, ws);
             CLuaMonitor::push(L, mon);

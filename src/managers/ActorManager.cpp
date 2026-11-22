@@ -9,6 +9,7 @@
 #include "../desktop/view/window/Window.hpp"
 #include "../devices/IPointer.hpp"
 #include "../event/EventBus.hpp"
+#include "../helpers/time/Time.hpp"
 #include "../ipc/s1/S1.hpp"
 #include "../ipc/s1/Unix.hpp"
 #include "../ipc/s2/Unix.hpp"
@@ -125,6 +126,10 @@ void CActor::attachPointer(SP<IPointer> pointer) {
     // a discrete step is 120
     p->axis = pointer->m_pointerEvents.axis.listen(
         [this](const IPointer::SAxisEvent& e) { m_seat->sendPointerAxis(e.timeMs, e.axis, e.delta, e.deltaDiscrete / 120, e.deltaDiscrete, e.source, e.relativeDirection); });
+}
+
+void CActor::warpPointer(const Vector2D& pos) {
+    movePointer(pos, Time::millis(Time::steadyNow()));
 }
 
 void CActor::movePointer(const Vector2D& pos, uint32_t timeMs) {

@@ -68,6 +68,9 @@ namespace Actor {
         // moves this actor's cursor and clicks with it, instead of the human's
         void attachPointer(SP<IPointer> pointer);
 
+        // moves this actor's cursor to a point on its monitor, as a warp does
+        void warpPointer(const Vector2D& pos);
+
         // the actor a socket's callback serves: the one in its data, or the human for none
         static SP<CActor>        from(void* data);
 

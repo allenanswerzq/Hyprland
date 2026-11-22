@@ -45,6 +45,8 @@ class CVirtualPointerV1Resource {
     SP<CZwlrVirtualPointerV1>           m_resource;
 
     uint32_t                            m_axis = 0;
+    // The frame's axis source, which applies to all of its axis events.
+    wl_pointer_axis_source              m_axisSource = WL_POINTER_AXIS_SOURCE_WHEEL;
 
     std::array<IPointer::SAxisEvent, 2> m_axisEvents;
     std::array<bool, 2>                 m_axisEventPending = {false, false};

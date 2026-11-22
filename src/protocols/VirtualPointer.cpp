@@ -63,14 +63,16 @@ CVirtualPointerV1Resource::CVirtualPointerV1Resource(SP<CZwlrVirtualPointerV1> r
         for (size_t i = 0; i < m_axisEvents.size(); ++i) {
             if (!m_axisEventPending[i])
                 continue;
+            m_axisEvents[i].source = m_axisSource;
             m_events.axis.emit(m_axisEvents[i]);
             m_axisEventPending[i] = false;
         }
+        m_axisSource = WL_POINTER_AXIS_SOURCE_WHEEL;
 
         m_events.frame.emit();
     });
 
-    m_resource->setAxisSource([this](CZwlrVirtualPointerV1* r, uint32_t source) { m_axisEvents[m_axis].source = sc<wl_pointer_axis_source>(source); });
+    m_resource->setAxisSource([this](CZwlrVirtualPointerV1* r, uint32_t source) { m_axisSource = sc<wl_pointer_axis_source>(source); });
 
     m_resource->setAxisStop([this](CZwlrVirtualPointerV1* r, uint32_t timeMs, uint32_t axis_) {
         if UNLIKELY (axis_ > WL_POINTER_AXIS_HORIZONTAL_SCROLL) {
