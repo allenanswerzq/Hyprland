@@ -1,5 +1,8 @@
 
 #include "Compositor.hpp"
+#include "actors/ActorRegistry.hpp"
+#include "actors/Actors.hpp"
+#include "actors/AgentManager.hpp"
 #include "helpers/MiscFunctions.hpp"
 #include "render/decorations/DecorationPositioner.hpp"
 #include "config/supplementary/executor/Executor.hpp"
@@ -277,10 +280,16 @@ static std::vector<SP<Aquamarine::IOutput>> pendingOutputs;
 //
 
 static bool filterGlobals(const wl_client* client, const wl_global* global, void* data) {
+    const bool PRIVILEGED = !g_pProtocolManager || g_pProtocolManager->isGlobalPrivileged(global);
+
+    // Actor rules first: which actor's outputs and which protocols a client may see.
+    if (!Actors::globalVisibleTo(client, global, PRIVILEGED))
+        return false;
+
     if (!PROTO::securityContext->isClientSandboxed(client))
         return true;
 
-    return !g_pProtocolManager || !g_pProtocolManager->isGlobalPrivileged(global);
+    return !PRIVILEGED;
 }
 
 //
@@ -295,7 +304,8 @@ void CCompositor::initServer(std::string socketName, int socketFd) {
         return;
     }
 
-    m_wlDisplay = wl_display_create();
+    m_wlDisplay      = wl_display_create();
+    g_pActorRegistry = makeUnique<Actors::CActorRegistry>(m_wlDisplay);
 
     wl_display_set_global_filter(m_wlDisplay, ::filterGlobals, nullptr);
 
@@ -428,6 +438,23 @@ void CCompositor::initServer(std::string socketName, int socketFd) {
         LOG(Log::CRIT, "m_szWLDisplaySocket NULL!");
         throwError("m_szWLDisplaySocket was null! (wl_display_add_socket and wl_display_add_socket_auto failed)");
     }
+
+    g_pActorRegistry->setHumanSocket(m_wlDisplaySocket);
+
+    if (const auto AGENT_COUNT_ENV = getenv("HYPRLAND_AGENT_COUNT")) {
+        const auto AGENT_COUNT = Actors::parseAgentCount(AGENT_COUNT_ENV);
+        if (!AGENT_COUNT)
+            throwError(std::format("HYPRLAND_AGENT_COUNT is invalid: {}", AGENT_COUNT.error()));
+
+        const auto RUNTIME_DIR = getenv("XDG_RUNTIME_DIR");
+        const auto RESULT      = g_pActorRegistry->createAgentSockets(*AGENT_COUNT, RUNTIME_DIR ? RUNTIME_DIR : "");
+        if (!RESULT)
+            throwError(std::format("Cannot create agent sockets: {}", RESULT.error()));
+    }
+
+    // Agent seats, agent monitors and agent IPC. Agent monitors are created once the backend
+    // runs, in startCompositor.
+    g_pAgentManager = makeUnique<Actors::CAgentManager>();
 
     setenv("WAYLAND_DISPLAY", m_wlDisplaySocket.c_str(), 1);
     if (!getenv("XDG_CURRENT_DESKTOP")) {
@@ -617,6 +644,8 @@ void CCompositor::cleanup() {
     g_pXWayland.reset();
 
     wl_display_destroy_clients(g_pCompositor->m_wlDisplay);
+    g_pAgentManager.reset();
+    g_pActorRegistry.reset();
 
     State::monitorState()->finish();
     State::fallbackState().reset();
@@ -834,6 +863,9 @@ void CCompositor::startCompositor() {
 #endif
 
     createLockFile();
+
+    if (g_pAgentManager)
+        g_pAgentManager->start();
 
     Event::bus()->m_events.ready.emit();
 

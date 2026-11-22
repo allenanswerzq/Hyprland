@@ -1,4 +1,5 @@
 #include "SeatManager.hpp"
+#include "../actors/Actors.hpp"
 #include "../protocols/core/Seat.hpp"
 #include "../protocols/core/DataDevice.hpp"
 #include "../protocols/DataDeviceWlr.hpp"
@@ -241,6 +242,12 @@ void CSeatManager::setKeyboardFocus(SP<CWLSurfaceResource> surf) {
     if (m_state.keyboardFocus == surf)
         return;
 
+    // This is the human seat. Agent-controlled surfaces get focus from their agent seat.
+    if (surf && !Actors::humanControls(surf)) {
+        LOG(Log::DEBUG, "[seatmgr] Refusing human keyboard focus to a surface the human does not control");
+        return;
+    }
+
     if (!g_pInputManager->anyHidHasCap(HID_INPUT_CAPABILITY_KEYBOARD)) {
         LOG(Log::ERR, "BUG THIS: setKeyboardFocus without a valid keyboard capability");
         return;
@@ -250,8 +257,9 @@ void CSeatManager::setKeyboardFocus(SP<CWLSurfaceResource> surf) {
 
     // Don't gate leave on m_state.keyboardFocusResource — the WP can
     // be stale. sendLeave no-ops on keyboards without m_currentSurface.
+    // Only human-controlled clients: agent seats manage the focus of their own clients.
     for (auto const& k : PROTO::seat->m_keyboards) {
-        if (!k)
+        if (!k || !k->m_owner || !Actors::humanControls(k->m_owner->client()))
             continue;
 
         k->sendMods(0, m_keyboard->m_modifiersState.latched, m_keyboard->m_modifiersState.locked, m_keyboard->m_modifiersState.group);
@@ -350,6 +358,11 @@ void CSeatManager::setPointerFocus(SP<CWLSurfaceResource> surf, const Vector2D& 
     if (m_state.pointerFocus == surf)
         return;
 
+    if (surf && !Actors::humanControls(surf)) {
+        LOG(Log::DEBUG, "[seatmgr] Refusing human pointer focus to a surface the human does not control");
+        return;
+    }
+
     if (dndActive && surf) {
         if (m_state.dndPointerFocus == surf)
             return;
@@ -372,7 +385,7 @@ void CSeatManager::setPointerFocus(SP<CWLSurfaceResource> surf, const Vector2D& 
     g_pInputManager->pointerConstraints().release();
 
     for (auto const& p : PROTO::seat->m_pointers) {
-        if (!p)
+        if (!p || !p->m_owner || !Actors::humanControls(p->m_owner->client()))
             continue;
 
         p->sendLeave();

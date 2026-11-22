@@ -5,6 +5,9 @@
 const std::string_view USAGE = R"#(usage: hyprctl [flags] <command> [args...|--help]
 
 commands:
+    actor borrow|return <window> → Borrows an agent window for the human,
+                          or returns it to its agent
+    actors              → Lists the human, agents, sockets, and client counts
     activewindow        → Gets the active window name and its properties
     activeworkspace     → Gets the active workspace and its properties
     animations          → Gets the current config'd info about animations

@@ -1,6 +1,7 @@
 #include "ProtocolManager.hpp"
 
 #include "../config/ConfigValue.hpp"
+#include "../actors/Actors.hpp"
 
 #include "../protocols/TearingControl.hpp"
 #include "../protocols/FractionalScale.hpp"
@@ -119,6 +120,9 @@ void CProtocolManager::onMonitorModeChange(PHLMONITOR pMonitor) {
     if (ISMIRROR && PROTO::outputs.contains(pMonitor->m_name))
         PROTO::outputs.at(pMonitor->m_name)->remove();
     else if (!ISMIRROR && (!PROTO::outputs.contains(pMonitor->m_name) || PROTO::outputs.at(pMonitor->m_name)->isDefunct())) {
+        // The global filter runs inside wl_global_create and wl_global_remove, before the
+        // global is registered, so it learns the monitor's actor here.
+        Actors::CPendingOutputGlobal scope(Actors::actorOf(pMonitor));
         retireOutputGlobal(pMonitor->m_name);
         auto p = PROTO::outputs.emplace(pMonitor->m_name,
                                         makeShared<CWLOutputProtocol>(&wl_output_interface, 4, std::format("WLOutput ({})", pMonitor->m_name), pMonitor->m_self.lock()));
@@ -145,6 +149,9 @@ CProtocolManager::CProtocolManager() {
         if (M->isMirror())
             return;
 
+        // The global filter runs inside wl_global_create and wl_global_remove, before the
+        // global is registered, so it learns the monitor's actor here.
+        Actors::CPendingOutputGlobal scope(Actors::actorOf(M));
         retireOutputGlobal(M->m_name);
 
         auto ref = makeShared<CWLOutputProtocol>(&wl_output_interface, 4, std::format("WLOutput ({})", M->m_name), M->m_self.lock());

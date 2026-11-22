@@ -80,6 +80,14 @@ Force a reload of the config file.
 Enter kill mode, where you can kill an app by clicking on it.
 You can exit by pressing ESCAPE.
 .RE
+.PP
+\f[B]actor\f[R] borrow|return \f[I]window\f[R]
+.RS
+.PP
+Borrows an agent window for the human, or returns it to its agent.
+A borrowed window behaves like a human window until it is returned.
+\f[I]window\f[R] is a window selector, for example address:0x1234.
+.RE
 .SH INFO COMMANDS
 \f[B]version\f[R]
 .RS
@@ -103,6 +111,12 @@ Lists all workspaces with their properties.
 .RS
 .PP
 Lists all windows with their properties.
+.RE
+.PP
+\f[B]actors\f[R]
+.RS
+.PP
+Lists the human, agents, Wayland sockets, and connected client counts.
 .RE
 .PP
 \f[B]devices\f[R]

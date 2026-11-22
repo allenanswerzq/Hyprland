@@ -286,6 +286,10 @@ class CXDGShellProtocol : public IWaylandProtocol {
 
     virtual void bindManager(wl_client* client, void* data, uint32_t ver, uint32_t id);
 
+    // Ends the human popup grab if one of the client's popups owns it. Used before the
+    // client stops being controlled by the human.
+    void dismissGrabsFor(const wl_client* client);
+
   private:
     void destroyResource(CXDGWMBase* resource);
     void destroyResource(CXDGPositionerResource* resource);

@@ -33,8 +33,8 @@ using namespace Hyprutils::String;
 using namespace Desktop::View;
 
 Workspace::CHLWorkspace::CHLWorkspace(WorkspaceID id, PHLMONITOR monitor, std::string displayName, std::string addressableName, eWorkspaceType type, bool isEmpty) :
-    Workspace::IAbstractWorkspace(type), m_monitor(monitor), m_wasCreatedEmpty(isEmpty), m_focusTracker(this), m_name(std::move(displayName)), m_id(std::move(id)),
-    m_addressableName(std::move(addressableName)) {
+    Workspace::IAbstractWorkspace(type), m_monitor(monitor), m_wasCreatedEmpty(isEmpty), m_focusTracker(this), m_name(std::move(displayName)),
+    m_actor(monitor ? monitor->m_actor : Actors::HUMAN_ACTOR_ID), m_id(std::move(id)), m_addressableName(std::move(addressableName)) {
     ;
 }
 
@@ -56,6 +56,10 @@ SP<Monitor::IMonitorAddressable> Workspace::CHLWorkspace::monitor() const {
 
 SP<Layout::CSpace> Workspace::CHLWorkspace::space() const {
     return m_space;
+}
+
+Actors::ActorID Workspace::CHLWorkspace::actor() const {
+    return m_actor;
 }
 
 std::optional<Workspace::WorkspaceIDContainer> Workspace::CHLWorkspace::numberedID() const {

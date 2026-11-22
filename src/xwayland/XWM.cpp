@@ -14,6 +14,7 @@
 
 #include "XWayland.hpp"
 #include "../Compositor.hpp"
+#include "../actors/ActorRegistry.hpp"
 #include "../protocols/core/Seat.hpp"
 #include "../managers/eventLoop/EventLoopManager.hpp"
 #include "../managers/SeatManager.hpp"
@@ -58,11 +59,20 @@ void CXWM::handleCreate(xcb_create_notify_event_t* e) {
     if (isWMWindow(e->window))
         return;
 
+    const auto&                    registry = g_pActorRegistry;
+    std::optional<Actors::ActorID> OWNER    = Actors::HUMAN_ACTOR_ID;
+    if (registry)
+        OWNER = g_pXWayland && g_pXWayland->m_server ? registry->ownerOf(g_pXWayland->m_server->m_xwaylandClient) : std::nullopt;
+    if (!OWNER) {
+        LOG(Log::ERR, "[xwm] XWayland client has no actor owner; ignoring X window {}", e->window);
+        return;
+    }
+
     const auto XSURF = m_surfaces.emplace_back(SP<CXWaylandSurface>(new CXWaylandSurface(e->window, CBox{e->x, e->y, e->width, e->height}, e->override_redirect)));
     XSURF->m_self    = XSURF;
     LOG(Log::DEBUG, "[xwm] New XSurface at {:x} with xid of {}", rc<uintptr_t>(XSURF.get()), e->window);
 
-    const auto WINDOW = Desktop::View::CWindow::create(makeUnique<Desktop::View::CX11Backend>(XSURF));
+    const auto WINDOW = Desktop::View::CWindow::create(makeUnique<Desktop::View::CX11Backend>(XSURF), *OWNER);
     LOG(Log::DEBUG, "[xwm] New XWayland window at {:x} for surf {:x}", rc<uintptr_t>(WINDOW.get()), rc<uintptr_t>(XSURF.get()));
 }
 

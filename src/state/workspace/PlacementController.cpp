@@ -3,6 +3,7 @@
 #include "../MonitorState.hpp"
 #include "Resolver.hpp"
 #include "State.hpp"
+#include "../../actors/Actors.hpp"
 
 #include "../../config/shared/workspace/WorkspaceRuleManager.hpp"
 #include "../../debug/log/Logger.hpp"
@@ -248,6 +249,11 @@ void CPlacementController::moveWorkspaceToMonitor(PHLWORKSPACE pWorkspace, PHLMO
 
     if (pWorkspace->m_monitor == pMonitor)
         return;
+
+    if (Actors::actorOf(pWorkspace) != Actors::actorOf(pMonitor)) {
+        LOG(Log::ERR, "moveWorkspaceToMonitor: refusing to move {} to {}: they belong to different actors", pWorkspace->addressableName(), pMonitor->m_name);
+        return;
+    }
 
     LOG(Log::DEBUG, "moveWorkspaceToMonitor: Moving {} to monitor {}", pWorkspace->addressableName(), pMonitor->m_id);
 

@@ -17,6 +17,7 @@
 #include "../../helpers/signal/Signal.hpp"
 #include "../../helpers/math/Math.hpp"
 #include "../types/SurfaceRole.hpp"
+#include "../../actors/ActorTypes.hpp"
 
 constexpr const char* HL_SEAT_NAME = "Hyprland";
 
@@ -171,6 +172,19 @@ class CWLSeatProtocol : public IWaylandProtocol {
     CWLSeatProtocol(const wl_interface* iface, const int& ver, const std::string& name);
 
     virtual void bindManager(wl_client* client, void* data, uint32_t ver, uint32_t id);
+
+    // The capabilities a client's seat offers. The human's devices drive human-controlled
+    // clients. Agent-controlled clients always get a keyboard and a pointer, because the
+    // agent's virtual devices can appear at any time.
+    uint32_t                         capsForClient(const wl_client* client) const;
+    bool                             clientHasCap(const wl_client* client, uint32_t cap) const;
+
+    std::vector<SP<CWLSeatResource>> seatResourcesForClient(const wl_client* client) const;
+
+    // Resends capabilities, keymap and repeat info after a client changed controller.
+    void refreshClient(const wl_client* client);
+    // Sends a keymap and repeat info to every wl_keyboard of the clients an agent controls.
+    void updateAgentKeymap(Actors::ActorID actor, SP<IKeyboard> keyboard);
 
     struct {
         CSignalT<SP<CWLSeatResource>> newSeatResource;

@@ -9,6 +9,8 @@
 #include "../../layout/LayoutManager.hpp"
 #include "../../layout/target/Target.hpp"
 #include "../../managers/fullscreen/FullscreenController.hpp"
+#include "../../actors/Actors.hpp"
+#include "../../debug/log/Logger.hpp"
 
 using namespace Desktop;
 
@@ -44,6 +46,12 @@ void CGlobalWindowController::moveWindowToWorkspace(PHLWINDOW pWindow, PHLWORKSP
 
     if (pWindow->m_workspace == pWorkspace)
         return;
+
+    // A window lives only on workspaces of the actor that controls it.
+    if (Actors::actorOf(pWorkspace) != Actors::controllerOf(pWindow)) {
+        LOG(Log::DEBUG, "Refusing to move {} to workspace {}: it belongs to another actor", pWindow, pWorkspace->addressableName());
+        return;
+    }
 
     const bool FULLSCREEN     = Fullscreen::controller()->isFullscreen(pWindow);
     const auto FULLSCREENMODE = Fullscreen::controller()->getFullscreenModes(pWindow).internal;

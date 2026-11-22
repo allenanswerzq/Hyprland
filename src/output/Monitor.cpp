@@ -1,4 +1,6 @@
 #include "Monitor.hpp"
+#include "../actors/ActorRegistry.hpp"
+#include "../actors/Actors.hpp"
 #include "../desktop/view/window/WindowEffectsController.hpp"
 #include "../desktop/view/window/WindowPresentation.hpp"
 #include "../helpers/MiscFunctions.hpp"
@@ -57,6 +59,7 @@
 #include "OutputCommitCoordinator.hpp"
 #include "MonitorWindowTransaction.hpp"
 #include <aquamarine/output/Output.hpp>
+#include <aquamarine/backend/Backend.hpp>
 #include "debug/log/Logger.hpp"
 #include "notification/NotificationOverlay.hpp"
 #include "MonitorFrameScheduler.hpp"
@@ -89,7 +92,21 @@ constexpr const char* drmFormatToString(uint32_t drmFormat) {
     }
 }
 
-CMonitor::CMonitor(SP<Aquamarine::IOutput> output_) : m_name(output_->name), m_state(this), m_output(output_), m_imageDescription(getDefaultImageDescription()) {
+// Only a headless output with a reserved agent name becomes an agent monitor. A real
+// monitor that happens to use the same name stays human.
+static Actors::ActorID actorForOutput(const SP<Aquamarine::IOutput>& output) {
+    if (!g_pActorRegistry || !output)
+        return Actors::HUMAN_ACTOR_ID;
+
+    const auto BACKEND = output->getBackend();
+    if (!BACKEND || BACKEND->type() != Aquamarine::AQ_BACKEND_HEADLESS)
+        return Actors::HUMAN_ACTOR_ID;
+
+    return g_pActorRegistry->actorForOutputName(output->name).value_or(Actors::HUMAN_ACTOR_ID);
+}
+
+CMonitor::CMonitor(SP<Aquamarine::IOutput> output_) :
+    m_actor(actorForOutput(output_)), m_name(output_->name), m_state(this), m_output(output_), m_imageDescription(getDefaultImageDescription()) {
     Animation::mgr()->createAnimation(0.f, m_specialFade, Config::animationTree()->getAnimationPropertyConfig("specialWorkspaceIn"), AVARDAMAGE_NONE);
     m_specialFade->setUpdateCallback([this](auto) { g_pHyprRenderer->damageMonitor(m_self.lock()); });
     Animation::mgr()->createAnimation(0.f, m_specialDim, Config::animationTree()->getAnimationPropertyConfig("specialWorkspaceIn"), AVARDAMAGE_NONE);
@@ -1336,6 +1353,11 @@ void CMonitor::changeWorkspace(const PHLWORKSPACE& pWorkspace, bool internal, bo
     if (!pWorkspace)
         return;
 
+    if (Actors::actorOf(pWorkspace) != m_actor) {
+        LOG(Log::ERR, "Refusing to show workspace {} on monitor {}: they belong to different actors", pWorkspace->addressableName(), m_name);
+        return;
+    }
+
     if (pWorkspace->type() == Workspace::eWorkspaceType::SPECIAL) {
         if (m_activeSpecialWorkspace != pWorkspace) {
             LOG(Log::DEBUG, "changeworkspace on special, togglespecialworkspace to {}", pWorkspace->addressableName());
@@ -1450,6 +1472,11 @@ void CMonitor::setSpecialWorkspaceVisualState(bool active) {
 void CMonitor::setSpecialWorkspace(const PHLWORKSPACE& pWorkspace, bool noFocus) {
     if (m_activeSpecialWorkspace == pWorkspace)
         return;
+
+    if (pWorkspace && Actors::actorOf(pWorkspace) != m_actor) {
+        LOG(Log::ERR, "Refusing to show special workspace {} on monitor {}: they belong to different actors", pWorkspace->addressableName(), m_name);
+        return;
+    }
 
     const auto POLDSPECIAL = m_activeSpecialWorkspace;
 
@@ -1738,7 +1765,7 @@ uint32_t CMonitor::isSolitaryBlocked(bool full) {
             return reasons;
     }
 
-    if (g_pSessionLockManager->isSessionLocked()) {
+    if (g_pSessionLockManager->isSessionLocked() && !Actors::isAgent(m_actor)) {
         reasons |= SC_LOCK;
         if (!full)
             return reasons;

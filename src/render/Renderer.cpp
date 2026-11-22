@@ -1,4 +1,5 @@
 #include "Renderer.hpp"
+#include "../actors/Actors.hpp"
 #include "../desktop/view/Subsurface.hpp"
 #include "SurfaceDamage.hpp"
 #include "../Compositor.hpp"
@@ -1231,7 +1232,8 @@ void IHyprRenderer::renderAllClientsForWorkspace(CRenderContext& ctx, PHLMONITOR
     if (mode != eSceneMode::MONITOR && !pWorkspace)
         return;
 
-    if UNLIKELY (g_pSessionLockManager->isSessionLocked() && !*PSESSIONLOCKXRAY) {
+    // The session lock only covers the human desktop. Agent monitors keep rendering.
+    if UNLIKELY (g_pSessionLockManager->isSessionLocked() && !*PSESSIONLOCKXRAY && !Actors::isAgentMonitor(pMonitor)) {
         // We stop to render workspaces as soon as the lockscreen was sent the "locked" or "finished" (aka denied) event.
         // In addition we make sure to stop rendering workspaces after misc:lockdead_screen_delay has passed.
         if (g_pSessionLockManager->shallConsiderLockMissing() || g_pSessionLockManager->clientLocked() || g_pSessionLockManager->clientDenied())
@@ -1809,6 +1811,9 @@ void IHyprRenderer::renderLockscreen(CRenderContext& ctx, PHLMONITOR pMonitor, c
         ensureLockTexturesRendered(false);
         return;
     }
+
+    if (Actors::isAgentMonitor(pMonitor))
+        return;
 
     const bool RENDERPRIMER = g_pSessionLockManager->shallConsiderLockMissing() || g_pSessionLockManager->clientLocked() || g_pSessionLockManager->clientDenied();
     if (RENDERPRIMER)

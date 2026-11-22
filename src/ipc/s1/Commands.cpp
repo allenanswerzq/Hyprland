@@ -1,4 +1,7 @@
 #include "Commands.hpp"
+#include "../../actors/ActorRegistry.hpp"
+#include "../../actors/Actors.hpp"
+#include "../../actors/AgentManager.hpp"
 #include "../../desktop/view/window/WindowFullscreenPolicy.hpp"
 #include "../../desktop/view/window/WindowGroupMembership.hpp"
 #include "../../desktop/view/window/WindowPresentation.hpp"
@@ -451,6 +454,13 @@ std::string CCommandFormatter::getWindowData(PHLWINDOW w, eHyprCtlOutputFormat f
     const auto METADATA          = w->backend().metadata();
     const bool VISIBLE           = w->mapped() && w->acceptsInput() && w->alphaNonZero();
     const auto WORKSPACE_ADDRESS = w->workspaceAddress();
+    const auto OWNER_ID          = w->owner();
+    const auto OWNER_ACTOR       = g_pActorRegistry ? g_pActorRegistry->actor(OWNER_ID) : nullptr;
+    const auto OWNER_NAME        = OWNER_ACTOR ? OWNER_ACTOR->name : std::string{"unknown"};
+    // The controller differs from the owner while the human borrows an agent window.
+    const auto CONTROLLER_ID    = Actors::controllerOf(w);
+    const auto CONTROLLER_ACTOR = g_pActorRegistry ? g_pActorRegistry->actor(CONTROLLER_ID) : nullptr;
+    const auto CONTROLLER_NAME  = CONTROLLER_ACTOR ? CONTROLLER_ACTOR->name : std::string{"unknown"};
 
     if (format == eHyprCtlOutputFormat::FORMAT_JSON) {
         return std::format(
@@ -474,6 +484,14 @@ std::string CCommandFormatter::getWindowData(PHLWINDOW w, eHyprCtlOutputFormat f
     "initialClass": "{}",
     "initialTitle": "{}",
     "pid": {},
+    "owner": {{
+        "id": {},
+        "name": "{}"
+    }},
+    "controller": {{
+        "id": {},
+        "name": "{}"
+    }},
     "xwayland": {},
     "pinned": {},
     "pinFullscreened": {},
@@ -505,7 +523,11 @@ std::string CCommandFormatter::getWindowData(PHLWINDOW w, eHyprCtlOutputFormat f
             escapeJSONStrings(w->metadata().title()),
             escapeJSONStrings(w->metadata().initialAppID()),
             escapeJSONStrings(w->metadata().initialTitle()),
-            w->backend().pid(), (w->backend().isX11() ? "true" : "false"), ((w->m_state & Desktop::View::WINDOW_STATE_PINNED) ? "true" : "false"),
+            w->backend().pid(),
+            OWNER_ID,
+            escapeJSONStrings(OWNER_NAME),
+            CONTROLLER_ID,
+            escapeJSONStrings(CONTROLLER_NAME), (w->backend().isX11() ? "true" : "false"), ((w->m_state & Desktop::View::WINDOW_STATE_PINNED) ? "true" : "false"),
             (w->fullscreenPolicy().pinFullscreened() ? "true" : "false"),
             sc<uint8_t>(Fullscreen::controller()->getFullscreenModes(w).internal),
             sc<uint8_t>(Fullscreen::controller()->getFullscreenModes(w).client),
@@ -523,7 +545,7 @@ std::string CCommandFormatter::getWindowData(PHLWINDOW w, eHyprCtlOutputFormat f
             "Window {:x} -> {}:\n\tmapped: {}\n\thidden: {}\n\tvisible: {}\n\tacceptsInput: {}\n\tat: {},{}\n\tsize: {},{}\n\tworkspace: {} ({})\n\tfloating: {}\n\tmonitor: "
             "{}\n\tclass: {}\n\ttitle: "
             "{}\n\tinitialClass: {}\n\tinitialTitle: {}\n\tpid: "
-            "{}\n\txwayland: {}\n\tpinned: {}\n\tpinFullscreened: "
+            "{}\n\towner: {} ({})\n\tcontroller: {} ({})\n\txwayland: {}\n\tpinned: {}\n\tpinFullscreened: "
             "{}\n\tfullscreen: {}\n\tfullscreenClient: {}\n\tfullscreenHandler: {}\n\tallowedOverFullscreen: {}\n\tgrouped: {}\n\ttags: {}\n\tswallowing: {:x}\n\tfocusHistoryID: "
             "{}\n\tinhibitingIdle: "
             "{}\n\txdgTag: "
@@ -546,6 +568,10 @@ std::string CCommandFormatter::getWindowData(PHLWINDOW w, eHyprCtlOutputFormat f
             w->metadata().initialAppID(),
             w->metadata().initialTitle(),
             w->backend().pid(),
+            OWNER_NAME,
+            OWNER_ID,
+            CONTROLLER_NAME,
+            CONTROLLER_ID,
             sc<int>(w->backend().isX11()),
             sc<int>(sc<bool>(w->m_state & Desktop::View::WINDOW_STATE_PINNED)),
             sc<int>(w->fullscreenPolicy().pinFullscreened()),
@@ -1831,6 +1857,12 @@ static std::string dispatchOutput(eHyprCtlOutputFormat format, std::string reque
 
     bool       added = false;
 
+    // AGENT-NNN outputs are the agents' desktops. Only the agent manager creates them, and
+    // they live as long as the compositor.
+    const auto OUTPUT_NAME = MODE == "create" || MODE == "add" ? vars[3] : vars[2];
+    if (g_pActorRegistry && g_pActorRegistry->isReservedOutputName(OUTPUT_NAME))
+        return "That output name is reserved for agents.";
+
     if (!vars[3].empty()) {
         for (auto const& m : State::monitorState()->allMonitors()) {
             if (m->m_name == vars[3])
@@ -2074,7 +2106,66 @@ static SCommand legacyCommand(std::string name, eCommandMatch match, F handler) 
     };
 }
 
+static std::string actorsRequest(eHyprCtlOutputFormat format, std::string request) {
+    const auto& registry = g_pActorRegistry;
+    if (!registry)
+        return format == eHyprCtlOutputFormat::FORMAT_JSON ? "[]" : "actors are unavailable";
+
+    std::string result;
+    if (format == eHyprCtlOutputFormat::FORMAT_JSON) {
+        result += "[";
+        for (const auto& actor : registry->actors()) {
+            result += std::format(
+                R"#(
+{{
+    "id": {},
+    "kind": "{}",
+    "name": "{}",
+    "waylandSocket": "{}",
+    "clients": {}
+}},)#",
+                actor.id, Actors::actorKindToString(actor.kind), escapeJSONStrings(actor.name), escapeJSONStrings(actor.waylandSocket), registry->clientCount(actor.id));
+        }
+        trimTrailingComma(result);
+        result += "]";
+        return result;
+    }
+
+    for (const auto& actor : registry->actors()) {
+        result += std::format("Actor {} ({}):\n\tkind: {}\n\twaylandSocket: {}\n\tclients: {}\n\n", actor.name, actor.id, Actors::actorKindToString(actor.kind),
+                              actor.waylandSocket, registry->clientCount(actor.id));
+    }
+
+    return result;
+}
+
+// actor borrow <window>, actor return <window>. The window is any window selector, for
+// example address:0x1234.
+static std::string actorRequest(eHyprCtlOutputFormat format, std::string request) {
+    CVarList   vars(request, 0, ' ');
+
+    const auto RESULT = [format](const std::expected<void, std::string>& result) -> std::string {
+        if (format == eHyprCtlOutputFormat::FORMAT_JSON)
+            return result ? R"({"ok": true})" : std::format(R"({{"ok": false, "error": "{}"}})", escapeJSONStrings(result.error()));
+        return result ? "ok" : result.error();
+    };
+
+    if (vars.size() < 3 || (vars[1] != "borrow" && vars[1] != "return"))
+        return RESULT(std::unexpected("usage: actor borrow|return <window>"));
+
+    if (!g_pAgentManager)
+        return RESULT(std::unexpected("there are no agents"));
+
+    const auto PWINDOW = Desktop::viewState()->query().selector(vars[2]).runWindow();
+    if (!PWINDOW)
+        return RESULT(std::unexpected("window not found"));
+
+    return RESULT(vars[1] == "borrow" ? g_pAgentManager->borrow(PWINDOW) : g_pAgentManager->returnWindow(PWINDOW));
+}
+
 void IPC::Socket1::registerBuiltinCommands(CSocket1& socket) {
+    socket.registerCommand(legacyCommand("actors", COMMAND_MATCH_EXACT, actorsRequest));
+    socket.registerCommand(legacyCommand("actor", COMMAND_MATCH_PREFIX, actorRequest));
     socket.registerCommand(legacyCommand("workspaces", COMMAND_MATCH_EXACT, workspacesRequest));
     socket.registerCommand(legacyCommand("workspacerules", COMMAND_MATCH_EXACT, workspaceRulesRequest));
     socket.registerCommand(legacyCommand("activeworkspace", COMMAND_MATCH_EXACT, activeWorkspaceRequest));

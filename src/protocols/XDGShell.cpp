@@ -2,6 +2,9 @@
 #include "XDGDialog.hpp"
 #include <algorithm>
 #include "../Compositor.hpp"
+#include "../actors/ActorRegistry.hpp"
+#include "../actors/Actors.hpp"
+#include "../actors/AgentManager.hpp"
 #include "../helpers/string/StringUtils.hpp"
 #include "../managers/SeatManager.hpp"
 #include "../managers/eventLoop/EventLoopManager.hpp"
@@ -14,6 +17,7 @@
 #include "../desktop/view/window/WaylandBackend.hpp"
 #include "protocols/core/Output.hpp"
 #include <cstddef>
+#include <optional>
 #include <ranges>
 
 static bool xdgToplevelResizeEdgeValid(xdgToplevelResizeEdge edges) {
@@ -82,6 +86,16 @@ CXDGPopupResource::CXDGPopupResource(SP<CXdgPopup> resource_, SP<CXDGSurfaceReso
 
     m_resource->setGrab([this](CXdgPopup* r, wl_resource* seat, uint32_t serial) {
         LOG(Log::DEBUG, "xdg_popup {:x} requests grab", (uintptr_t)this);
+
+        // An agent popup grabs its agent seat. The human seat grab stays untouched.
+        if (!Actors::humanControls(r->client())) {
+            if (const auto CONTROLLER = Actors::controllerOf(r->client()); CONTROLLER && g_pAgentManager)
+                g_pAgentManager->addPopupGrab(*CONTROLLER, m_self.lock());
+            else
+                done();
+            return;
+        }
+
         PROTO::xdgShell->addOrStartGrab(m_self.lock());
     });
 
@@ -197,6 +211,12 @@ CXDGToplevelResource::CXDGToplevelResource(SP<CXdgToplevel> resource_, SP<CXDGSu
     });
 
     m_resource->setMove([this](CXdgToplevel* r, wl_resource* seat, uint32_t serial) {
+        // Interactive move follows the human pointer.
+        if (!Actors::humanControls(r->client())) {
+            LOG(Log::DEBUG, "Ignoring xdg_toplevel.move from a client the human does not control");
+            return;
+        }
+
         const auto SEAT = CWLSeatResource::fromResource(seat);
         if (!SEAT || SEAT->client() != r->client()) {
             LOG(Log::DEBUG, "Ignoring xdg_toplevel.move with an invalid seat");
@@ -219,6 +239,12 @@ CXDGToplevelResource::CXDGToplevelResource(SP<CXdgToplevel> resource_, SP<CXDGSu
     m_resource->setResize([this](CXdgToplevel* r, wl_resource* seat, uint32_t serial, xdgToplevelResizeEdge edges) {
         if (!xdgToplevelResizeEdgeValid(edges)) {
             r->error(XDG_TOPLEVEL_ERROR_INVALID_RESIZE_EDGE, "Invalid resize edge");
+            return;
+        }
+
+        // Interactive resize follows the human pointer.
+        if (!Actors::humanControls(r->client())) {
+            LOG(Log::DEBUG, "Ignoring xdg_toplevel.resize from a client the human does not control");
             return;
         }
 
@@ -585,6 +611,14 @@ CXDGSurfaceResource::CXDGSurfaceResource(SP<CXdgSurface> resource_, SP<CXDGWMBas
     });
 
     m_resource->setGetToplevel([this](CXdgSurface* r, uint32_t id) {
+        const auto& registry = g_pActorRegistry;
+        const auto  OWNER    = registry ? registry->ownerOf(r->client()) : std::optional<Actors::ActorID>{Actors::HUMAN_ACTOR_ID};
+        if (!OWNER) {
+            LOG(Log::ERR, "xdg_surface {:x} has no actor owner", (uintptr_t)this);
+            wl_client_post_implementation_error(r->client(), "xdg_toplevel client has no actor owner");
+            return;
+        }
+
         const auto RESOURCE = PROTO::xdgShell->m_toplevels.emplace_back(makeShared<CXDGToplevelResource>(makeShared<CXdgToplevel>(r->client(), r->version(), id), m_self.lock()));
 
         if UNLIKELY (!RESOURCE->good()) {
@@ -598,7 +632,7 @@ CXDGSurfaceResource::CXDGSurfaceResource(SP<CXdgSurface> resource_, SP<CXDGWMBas
 
         LOG(Log::DEBUG, "xdg_surface {:x} gets a toplevel {:x}", (uintptr_t)m_owner.get(), (uintptr_t)RESOURCE.get());
 
-        PHLWINDOW createdWindow = Desktop::View::CWindow::create(makeUnique<Desktop::View::CWaylandBackend>(m_self.lock()));
+        PHLWINDOW createdWindow = Desktop::View::CWindow::create(makeUnique<Desktop::View::CWaylandBackend>(m_self.lock()), *OWNER);
 
         if (RESOURCE->m_parent && (RESOURCE->m_parent->m_window->m_state & Desktop::View::WINDOW_STATE_PINNED))
             createdWindow->m_state |= Desktop::View::WINDOW_STATE_PINNED;
@@ -1009,6 +1043,26 @@ void CXDGShellProtocol::onPopupDestroy(WP<CXDGPopupResource> popup) {
     std::erase(m_grabbed, popup);
     if (popup->m_surface)
         m_grab->remove(popup->m_surface->m_surface.lock());
+}
+
+void CXDGShellProtocol::dismissGrabsFor(const wl_client* client) {
+    const auto OWNER   = m_grabOwner.lock();
+    const auto SURFACE = OWNER && OWNER->m_surface ? OWNER->m_surface->m_surface.lock() : nullptr;
+    if (!SURFACE || SURFACE->client() != client)
+        return;
+
+    // Ending the seat grab runs the grab callback, which sends done to the grabbed popups.
+    if (g_pSeatManager->m_seatGrab == m_grab)
+        g_pSeatManager->setGrab(nullptr);
+
+    for (auto const& g : m_grabbed) {
+        if (g)
+            g->done();
+    }
+
+    m_grabbed.clear();
+    m_grab->clear();
+    m_grabOwner.reset();
 }
 
 CXDGSurfaceRole::CXDGSurfaceRole(SP<CXDGSurfaceResource> xdg) : m_xdgSurface(xdg) {

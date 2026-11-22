@@ -28,6 +28,8 @@
 #include "../../protocols/core/DataDevice.hpp"
 #include "../../protocols/core/Compositor.hpp"
 #include "../../protocols/InputCapture.hpp"
+#include "../../actors/Actors.hpp"
+#include "../../actors/AgentManager.hpp"
 #include "../../hotkeys/Manager.hpp"
 
 #include "../../devices/Mouse.hpp"
@@ -1139,6 +1141,14 @@ void CInputManager::newKeyboard(SP<Aquamarine::IKeyboard> keyboard) {
 }
 
 void CInputManager::newVirtualKeyboard(SP<CVirtualKeyboardV1Resource> keyboard) {
+    // A virtual keyboard of an agent client is that agent's keyboard. It never types into
+    // the human seat.
+    if (const auto OWNER = Actors::ownerOf(keyboard->client()); OWNER && Actors::isAgent(*OWNER)) {
+        if (g_pAgentManager)
+            g_pAgentManager->addVirtualKeyboard(*OWNER, CVirtualKeyboard::create(keyboard));
+        return;
+    }
+
     const auto PNEWKEYBOARD = m_keyboards.emplace_back(CVirtualKeyboard::create(keyboard));
 
     setupKeyboard(PNEWKEYBOARD);
@@ -1310,6 +1320,14 @@ void CInputManager::applyConfigToKeyboard(SP<IKeyboard> pKeyboard) {
 }
 
 void CInputManager::newVirtualMouse(SP<CVirtualPointerV1Resource> mouse) {
+    // A virtual pointer of an agent client is that agent's pointer. It never moves the
+    // human cursor.
+    if (const auto OWNER = Actors::ownerOf(mouse->client()); OWNER && Actors::isAgent(*OWNER)) {
+        if (g_pAgentManager)
+            g_pAgentManager->addVirtualPointer(*OWNER, CVirtualPointer::create(mouse));
+        return;
+    }
+
     const auto PMOUSE = m_pointers.emplace_back(CVirtualPointer::create(mouse));
 
     setupMouse(PMOUSE);

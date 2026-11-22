@@ -33,6 +33,7 @@
 
 #include "../helpers/TransferFunction.hpp"
 #include "../config/shared/monitor/MonitorRule.hpp"
+#include "../actors/ActorTypes.hpp"
 
 class CSyncTimeline;
 class CEventLoopTimer;
@@ -74,6 +75,7 @@ namespace Monitor {
         Vector2D                    m_transformedSize  = Vector2D(0, 0);
 
         MONITORID                   m_id                     = MONITOR_INVALID;
+        const Actors::ActorID       m_actor                  = Actors::HUMAN_ACTOR_ID; // whose desktop this monitor shows, fixed for its life
         PHLWORKSPACE                m_activeWorkspace        = nullptr;
         PHLWORKSPACE                m_activeSpecialWorkspace = nullptr;
         float                       m_setScale               = 1; // scale set by cfg

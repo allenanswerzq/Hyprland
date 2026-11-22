@@ -17,6 +17,8 @@
 #include "../../render/Renderer.hpp"
 #include "../../xwayland/Dnd.hpp"
 #include "../../event/EventBus.hpp"
+#include "../../actors/Actors.hpp"
+#include "../../actors/AgentManager.hpp"
 using namespace Hyprutils::OS;
 
 static constexpr uint32_t DND_ACTIONS = WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY | WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE | WL_DATA_DEVICE_MANAGER_DND_ACTION_ASK;
@@ -302,6 +304,17 @@ CWLDataDeviceResource::CWLDataDeviceResource(SP<CWlDataDevice> resource_) : m_re
 
     m_resource->setSetSelection([](CWlDataDevice* r, wl_resource* sourceR, uint32_t serial) {
         auto source = sourceR ? CWLDataSourceResource::fromResource(sourceR) : CSharedPointer<CWLDataSourceResource>{};
+
+        // Agent clients have their own clipboard, held by their agent seat.
+        if (!Actors::humanControls(r->client())) {
+            if (source)
+                source->markUsed();
+
+            if (const auto CONTROLLER = Actors::controllerOf(r->client()); CONTROLLER && g_pAgentManager)
+                g_pAgentManager->setSelection(*CONTROLLER, source, false);
+            return;
+        }
+
         if (!source) {
             LOG(Log::DEBUG, "Reset selection received");
             g_pSeatManager->setCurrentSelection(nullptr);
@@ -320,6 +333,12 @@ CWLDataDeviceResource::CWLDataDeviceResource(SP<CWlDataDevice> resource_) : m_re
         auto source = sourceR ? CWLDataSourceResource::fromResource(sourceR) : CSharedPointer<CWLDataSourceResource>{};
         if (!source) {
             LOG(Log::ERR, "No source in drag");
+            return;
+        }
+
+        // Drag and drop follows the human pointer, so only human clients can start one.
+        if (!Actors::humanControls(r->client())) {
+            source->cancelled();
             return;
         }
 
@@ -549,12 +568,34 @@ void CWLDataDeviceProtocol::onDestroyDataSource(WP<CWLDataSourceResource> source
         abortDrag();
 }
 
-void CWLDataDeviceProtocol::setSelection(SP<IDataSource> source) {
+void CWLDataDeviceProtocol::invalidateOffersFor(Actors::ActorID actor) {
     for (auto const& o : m_offers) {
         if (o->m_source && o->m_source->hasDnd())
             continue;
-        o->m_dead = true;
+        if (Actors::controllerOf(o->m_resource->client()) == actor)
+            o->m_dead = true;
     }
+}
+
+void CWLDataDeviceProtocol::invalidateOffersForClient(const wl_client* client) {
+    for (auto const& o : m_offers) {
+        if (o->m_source && o->m_source->hasDnd())
+            continue;
+        if (o->m_resource->client() == client)
+            o->m_dead = true;
+    }
+}
+
+void CWLDataDeviceProtocol::sendSelectionToClient(const wl_client* client, SP<IDataSource> source) {
+    const auto DEVICE = dataDeviceForClient(const_cast<wl_client*>(client));
+    if (!DEVICE || DEVICE->type() != DATA_SOURCE_TYPE_WAYLAND)
+        return;
+
+    sendSelectionToDevice(DEVICE, source);
+}
+
+void CWLDataDeviceProtocol::setSelection(SP<IDataSource> source) {
+    invalidateOffersFor(Actors::HUMAN_ACTOR_ID);
 
     if (!source) {
         LOG(Log::DEBUG, "resetting selection");
@@ -604,11 +645,7 @@ void CWLDataDeviceProtocol::updateSelection() {
 }
 
 void CWLDataDeviceProtocol::onKeyboardFocus() {
-    for (auto const& o : m_offers) {
-        if (o->m_source && o->m_source->hasDnd())
-            continue;
-        o->m_dead = true;
-    }
+    invalidateOffersFor(Actors::HUMAN_ACTOR_ID);
 
     updateSelection();
 }

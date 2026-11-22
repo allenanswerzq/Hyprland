@@ -4,6 +4,7 @@
 #include "../event/EventBus.hpp"
 #include "core/Compositor.hpp"
 #include "core/Output.hpp"
+#include "../actors/Actors.hpp"
 #include <aquamarine/output/Output.hpp>
 
 CQueuedPresentationData::CQueuedPresentationData(SP<CWLSurfaceResource> surf, std::vector<WP<CPresentationFeedback>> feedbacks) :
@@ -50,11 +51,11 @@ bool CPresentationFeedback::good() {
 void CPresentationFeedback::sendQueued(WP<CQueuedPresentationData> data, const timespec& when, uint32_t untilRefreshNs, uint64_t seq, uint32_t reportedFlags) {
     auto client = m_resource->client();
 
-    if LIKELY (PROTO::outputs.contains(data->m_monitor->m_name) && data->m_wasPresented) {
-        if LIKELY (auto outputResources = PROTO::outputs.at(data->m_monitor->m_name)->outputResourcesFrom(client); !outputResources.empty()) {
-            for (const auto& r : outputResources) {
+    if LIKELY (data->m_monitor && data->m_wasPresented) {
+        // Includes borrow proxies, so a borrowed client gets the output it can resolve.
+        for (const auto& r : Actors::outputResourcesFor(data->m_monitor.lock(), client)) {
+            if (r->getResource() && r->getResource()->resource())
                 m_resource->sendSyncOutput(r->getResource()->resource());
-            }
         }
     }
 

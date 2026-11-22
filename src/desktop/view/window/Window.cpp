@@ -58,6 +58,8 @@
 #include "../../../render/Renderer.hpp"
 #include "../../../render/scene/SceneSelection.hpp"
 #include "../../../ipc/s2/S2.hpp"
+#include "../../../actors/Actors.hpp"
+#include "../../../actors/AgentManager.hpp"
 #include "../../../managers/input/InputManager.hpp"
 #include "../../../pointer/PointerController.hpp"
 #include "../../../managers/fullscreen/FullscreenController.hpp"
@@ -102,11 +104,11 @@ static Layout::eRectCorner backendResizeEdgeToCorner(eBackendResizeEdge edge) {
 #define COMMA ,
 //
 
-PHLWINDOW CWindow::create(UP<IWindowBackend> backend) {
+PHLWINDOW CWindow::create(UP<IWindowBackend> backend, Actors::ActorID owner) {
     if (!backend)
         return nullptr;
 
-    PHLWINDOW pWindow = SP<CWindow>(new CWindow(std::move(backend)));
+    PHLWINDOW pWindow = SP<CWindow>(new CWindow(std::move(backend), owner));
 
     pWindow->m_self = pWindow;
     pWindow->m_backend->attach(pWindow);
@@ -156,9 +158,9 @@ void CWindow::attachBackendListeners() {
     });
 }
 
-CWindow::CWindow(UP<IWindowBackend> backend) :
+CWindow::CWindow(UP<IWindowBackend> backend, Actors::ActorID owner) :
     IView(CWLSurface::create()), m_grouping(makeUnique<CWindowGroupMembership>(*this)), m_swallowing(makeUnique<CWindowSwallowController>(*this)),
-    m_fullscreenPolicy(makeUnique<CWindowFullscreenPolicy>()), m_backend(std::move(backend)), m_metadata(makeUnique<CWindowMetadata>()),
+    m_fullscreenPolicy(makeUnique<CWindowFullscreenPolicy>()), m_owner(owner), m_backend(std::move(backend)), m_metadata(makeUnique<CWindowMetadata>()),
     m_presentation(makeUnique<CWindowPresentation>(*this)), m_effects(makeUnique<CWindowEffectsController>(*this)), m_stateTracker(makeUnique<CWindowStateEventTracker>(*this)) {
     ;
 }
@@ -183,6 +185,10 @@ CWindow::~CWindow() {
 
 IWindowBackend& CWindow::backend() {
     return *m_backend;
+}
+
+Actors::ActorID CWindow::owner() const {
+    return m_owner;
 }
 
 const IWindowBackend& CWindow::backend() const {
@@ -455,6 +461,12 @@ void CWindow::syncInitialWorkspaceToken(PHLWORKSPACE pWorkspace) {
 void CWindow::moveToWorkspace(PHLWORKSPACE pWorkspace) {
     if (!pWorkspace || m_workspace == pWorkspace)
         return;
+
+    // A window lives only on workspaces of the actor that controls it.
+    if (Actors::actorOf(pWorkspace) != Actors::controllerOf(m_self.lock())) {
+        LOG(Log::DEBUG, "Refusing to move {} to workspace {}: it belongs to another actor", m_self.lock(), pWorkspace->addressableName());
+        return;
+    }
 
     syncInitialWorkspaceToken(pWorkspace);
 
@@ -802,17 +814,27 @@ std::unordered_map<std::string, std::string> CWindow::getEnv() {
 }
 
 void CWindow::markUrgent() {
-    if (Desktop::focusState()->window() == m_self)
+    const auto CONTROLLER = Actors::controllerOf(m_self.lock());
+    const bool AGENT      = Actors::isAgent(CONTROLLER);
+
+    if (AGENT ? g_pAgentManager && g_pAgentManager->focusedWindow(CONTROLLER) == m_self.lock() : Desktop::focusState()->window() == m_self)
         return;
 
     m_hints |= WINDOW_HINT_URGENT;
 
-    IPC::Socket2::sock()->postEvent({.event = "urgent", .data = std::format("{:x}", rc<uintptr_t>(this))});
+    // Agent windows report on the agent's own socket2.
+    if (AGENT) {
+        if (g_pAgentManager)
+            g_pAgentManager->postEvent(CONTROLLER, "urgent", std::format("{:x}", rc<uintptr_t>(this)));
+    } else
+        IPC::Socket2::sock()->postEvent({.event = "urgent", .data = std::format("{:x}", rc<uintptr_t>(this))});
     Event::bus()->m_events.window.urgent.emit(m_self.lock());
 }
 
 void CWindow::activate(bool force) {
-    if (Desktop::focusState()->window() == m_self)
+    const bool HUMAN = Actors::humanControls(m_self.lock());
+
+    if (HUMAN ? Desktop::focusState()->window() == m_self : g_pAgentManager && g_pAgentManager->focusedWindow(Actors::controllerOf(m_self.lock())) == m_self.lock())
         return;
 
     static auto PFOCUSONACTIVATE = CConfigValue<Config::INTEGER>("misc:focus_on_activate");
@@ -831,7 +853,10 @@ void CWindow::activate(bool force) {
         Desktop::windowState()->raise(m_self.lock());
 
     Desktop::focusState()->fullWindowFocus(m_self.lock(), FOCUS_REASON_DESKTOP_STATE_CHANGE);
-    warpCursor();
+
+    // The human cursor never moves for an agent window.
+    if (HUMAN)
+        warpCursor();
 }
 
 void CWindow::onUpdateState(const SBackendStateRequest& request) {
@@ -1158,10 +1183,20 @@ void CWindow::mapWindow() {
     static auto                         PINITIALWSTRACKING = CConfigValue<Config::INTEGER>("misc:initial_workspace_tracking");
     static auto                         PAUTOGROUP         = CConfigValue<Config::INTEGER>("group:auto_group");
 
-    auto                                PMONITOR = Desktop::focusState()->monitor();
-    if (!Desktop::focusState()->monitor()) {
-        Desktop::focusState()->rawMonitorFocus(State::monitorState()->query().vec({}).run());
+    // Placement follows the controller. An agent window opens on its agent's monitor, and a
+    // window of a borrowed client opens on the human's focused monitor.
+    const auto CONTROLLER = Actors::controllerOf(m_self.lock());
+    const bool AGENT      = Actors::isAgent(CONTROLLER);
+
+    PHLMONITOR PMONITOR;
+    if (AGENT)
+        PMONITOR = g_pAgentManager ? g_pAgentManager->monitorFor(CONTROLLER) : nullptr;
+    else {
         PMONITOR = Desktop::focusState()->monitor();
+        if (!PMONITOR) {
+            Desktop::focusState()->rawMonitorFocus(State::monitorState()->query().vec({}).run());
+            PMONITOR = Desktop::focusState()->monitor();
+        }
     }
     if (!PMONITOR || (!PMONITOR->m_activeSpecialWorkspace && !PMONITOR->m_activeWorkspace)) {
         LOG(Log::ERR, "mapWindow: no valid monitor/workspace, aborting map for {:x}", (uintptr_t)this);
@@ -1184,7 +1219,8 @@ void CWindow::mapWindow() {
 
     bool                                     monitorSilent = false;
 
-    if (*PINITIALWSTRACKING) {
+    // Initial workspace tokens name human workspaces, so agent windows ignore them.
+    if (*PINITIALWSTRACKING && !AGENT) {
         const auto WINDOWENV = getEnv();
         if (WINDOWENV.contains("HL_INITIAL_WORKSPACE_TOKEN")) {
             const auto SZTOKEN = WINDOWENV.at("HL_INITIAL_WORKSPACE_TOKEN");
@@ -1216,7 +1252,7 @@ void CWindow::mapWindow() {
         }
     }
 
-    if (g_pInputManager->m_lastFocusOnLS) // waybar fix
+    if (!AGENT && g_pInputManager->m_lastFocusOnLS) // waybar fix
         g_pInputManager->releaseAllMouseButtons();
 
     // registers the animated vars and stuff
@@ -1242,7 +1278,9 @@ void CWindow::mapWindow() {
         SFullscreenRequestSuppression fullscreenSuppression;
         m_requestSuppression = {};
 
-        if (!m_ruleApplicator->static_.monitor.empty()) {
+        // Monitor and workspace rules move windows around the human layout. An agent has
+        // one monitor and one workspace, so agent windows skip them.
+        if (!AGENT && !m_ruleApplicator->static_.monitor.empty()) {
             const auto& MONITORSTR = m_ruleApplicator->static_.monitor;
             if (MONITORSTR == "unset")
                 m_monitor = PMONITOR;
@@ -1272,7 +1310,7 @@ void CWindow::mapWindow() {
             }
         }
 
-        if (!m_ruleApplicator->static_.workspace.empty()) {
+        if (!AGENT && !m_ruleApplicator->static_.workspace.empty()) {
             const auto WORKSPACERQ = m_ruleApplicator->static_.workspace;
             requestedWorkspaceTarget.reset();
 
@@ -1408,7 +1446,8 @@ void CWindow::mapWindow() {
             workspaceSilent = false;
     }
 
-    if (m_fullscreenPolicy->requestSuppression().fullscreenOutput)
+    // An agent window can only be fullscreen on its agent's monitor.
+    if (m_fullscreenPolicy->requestSuppression().fullscreenOutput || AGENT)
         requestedFSMonitor = MONITOR_INVALID;
     else if (requestedFSMonitor != MONITOR_INVALID) {
         if (const auto PM = State::monitorState()->query().id(requestedFSMonitor).run(); PM)
@@ -1433,7 +1472,9 @@ void CWindow::mapWindow() {
     m_swallowing->reserveCandidate();
 
     // emit the IPC event before the layout might focus the window to avoid a focus event first
-    IPC::Socket2::sock()->postEvent({"openwindow", std::format("{:x},{},{},{}", m_self.lock(), PWORKSPACE->addressableName(), m_metadata->appID(), m_metadata->title())});
+    // Agent windows are reported on the agent's own socket2 by the agent manager.
+    if (!AGENT)
+        IPC::Socket2::sock()->postEvent({"openwindow", std::format("{:x},{},{},{}", m_self.lock(), PWORKSPACE->addressableName(), m_metadata->appID(), m_metadata->title())});
     Event::bus()->m_events.window.openEarly.emit(m_self.lock());
 
     if (m_swallowing->activate()) {
@@ -1491,8 +1532,10 @@ void CWindow::mapWindow() {
     }
 
     // check LS focus grab
-    const auto PFORCEFOCUS  = Desktop::viewState()->query().forceFocus().runWindow();
-    const auto PLSFROMFOCUS = Desktop::viewState()->query().type(VIEW_TYPE_LAYER_SURFACE).surface(Desktop::focusState()->surface()).runLayer();
+    // Layer surfaces, forced focus and pointer constraints are human things. They do not keep
+    // an agent window from getting its agent's focus.
+    const auto PFORCEFOCUS  = AGENT ? PHLWINDOW{} : Desktop::viewState()->query().forceFocus().runWindow();
+    const auto PLSFROMFOCUS = AGENT ? PHLLS{} : Desktop::viewState()->query().type(VIEW_TYPE_LAYER_SURFACE).surface(Desktop::focusState()->surface()).runLayer();
     if (PLSFROMFOCUS && PLSFROMFOCUS->m_layerSurface->m_current.keyboardInteractivity != ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE)
         m_state |= WINDOW_STATE_NO_INITIAL_FOCUS;
 
@@ -1510,7 +1553,7 @@ void CWindow::mapWindow() {
     }
 
     if (!m_ruleApplicator->noFocus().valueOrDefault() && !(m_state & WINDOW_STATE_NO_INITIAL_FOCUS) && (!TRAITS.overrideRedirect || TRAITS.wantsFocus) && !workspaceSilent &&
-        !monitorSilent && (!PFORCEFOCUS || PFORCEFOCUS == m_self.lock()) && !g_pInputManager->isConstrained()) {
+        !monitorSilent && (!PFORCEFOCUS || PFORCEFOCUS == m_self.lock()) && (AGENT || !g_pInputManager->isConstrained())) {
 
         // don't steal pointer focus with X11 when buttons are held (e.g., during drags)
         // if the incoming window is an OR
@@ -1592,7 +1635,7 @@ void CWindow::mapWindow() {
         m_presentation->alpha(WINDOW_ALPHA_FULLSCREEN)->setValueAndWarp(0.f);
     }
 
-    if (g_pSeatManager->m_mouse.expired() || !g_pInputManager->isConstrained())
+    if (!AGENT && (g_pSeatManager->m_mouse.expired() || !g_pInputManager->isConstrained()))
         g_pInputManager->sendMotionEventsToFocused();
 
     if (m_workspace)
@@ -1638,7 +1681,10 @@ void CWindow::unmapWindow() {
     const bool  IS_CURRENT_WINDOW_FS      = Fullscreen::controller()->isFullscreen(m_self.lock());
     const auto  CURRENT_WINDOW_FS_MODES   = Fullscreen::controller()->getFullscreenModes(m_self.lock());
     const bool  CURRENT_FS_LAYOUT_HANDLED = IS_CURRENT_WINDOW_FS ? Fullscreen::controller()->layoutManagedFS(m_self.lock()) : false;
-    const bool  WAS_FOCUSED               = m_self.lock() == Desktop::focusState()->window();
+    // An agent window was focused if its agent seat focused it. The human focus never points at it.
+    const auto CONTROLLER  = Actors::controllerOf(m_self.lock());
+    const bool AGENT       = Actors::isAgent(CONTROLLER);
+    const bool WAS_FOCUSED = AGENT ? g_pAgentManager && g_pAgentManager->focusedWindow(CONTROLLER) == m_self.lock() : m_self.lock() == Desktop::focusState()->window();
     if (!wlSurface()->exists() || !m_isMapped) {
         LOG(Log::WARN, "{} unmapped without being mapped??", m_self.lock());
         return;
@@ -1648,7 +1694,9 @@ void CWindow::unmapWindow() {
 
     m_stateTracker->stop();
     m_events.unmap.emit();
-    IPC::Socket2::sock()->postEvent({"closewindow", std::format("{:x}", m_self.lock())});
+    // Agent windows are reported on the agent's own socket2 by the agent manager.
+    if (!AGENT)
+        IPC::Socket2::sock()->postEvent({"closewindow", std::format("{:x}", m_self.lock())});
     Event::bus()->m_events.window.close.emit(m_self.lock());
 
     if (m_target->floating() && !m_backend->isX11() && m_ruleApplicator->persistentSize().valueOrDefault()) {
@@ -1692,7 +1740,7 @@ void CWindow::unmapWindow() {
         return nullptr;
     }();
 
-    if (wasLastWindow) {
+    if (wasLastWindow && !AGENT) {
         if (m_self.lock() == Desktop::focusState()->window())
             Desktop::focusState()->resetWindowFocus();
 
@@ -1713,7 +1761,26 @@ void CWindow::unmapWindow() {
     m_isMapped = false;
 
     // refocus on a new window if needed
-    if (wasLastWindow) {
+    if (wasLastWindow && AGENT) {
+        // The agent seat picks the next window on the agent's workspace. There is no human
+        // pointer on an agent monitor, so focus_on_close = 1 has nothing to hit test.
+        PHLWINDOW candidate = nextInGroup;
+        if (!candidate && m_workspace) {
+            if (const auto CAND = g_layoutManager->getNextCandidate(m_workspace->space(), layoutTarget()); CAND)
+                candidate = CAND->window();
+        }
+
+        if (candidate && Actors::controllerOf(candidate) != CONTROLLER)
+            candidate = nullptr;
+
+        LOG(Log::DEBUG, "On closed agent window, new focused candidate is {}", candidate);
+
+        if (g_pAgentManager)
+            g_pAgentManager->focusWindow(CONTROLLER, candidate);
+
+        if (candidate && (*PEXITRETAINSFS == 1 || (candidate != nextInGroup && *PEXITRETAINSFS == 3) || (candidate == nextInGroup && *PEXITRETAINSFS == 2)) && IS_CURRENT_WINDOW_FS)
+            Fullscreen::controller()->setFullscreenMode(candidate, CURRENT_WINDOW_FS_MODES.internal, std::nullopt, CURRENT_FS_LAYOUT_HANDLED);
+    } else if (wasLastWindow) {
         static auto FOCUSONCLOSE = CConfigValue<Config::INTEGER>("input:focus_on_close");
         PHLWINDOW   candidate    = nextInGroup;
 

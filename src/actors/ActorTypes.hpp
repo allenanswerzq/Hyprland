@@ -1,0 +1,17 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+
+namespace Actors {
+    using ActorID = uint32_t;
+
+    inline constexpr ActorID HUMAN_ACTOR_ID  = 0;
+    inline constexpr size_t  MAX_AGENT_COUNT = 64;
+
+    // Agent monitors live far away from the human layout, so geometric lookups such as
+    // "which monitor contains this point" never mix human and agent space.
+    inline constexpr double AGENT_LAYOUT_ORIGIN_X = 1048576.0;
+    inline constexpr double AGENT_LAYOUT_ORIGIN_Y = 1048576.0;
+    inline constexpr double AGENT_LAYOUT_STRIDE   = 65536.0;
+}

@@ -6,6 +6,7 @@
 #include "../desktop/DesktopTypes.hpp"
 #include "../helpers/AnimatedVariable.hpp"
 #include "../helpers/signal/Signal.hpp"
+#include "../actors/ActorTypes.hpp"
 
 #include <optional>
 #include <string>
@@ -29,6 +30,7 @@ namespace Workspace {
         SP<Monitor::IMonitorAddressable>    monitor() const override;
 
         SP<Layout::CSpace>                  space() const;
+        Actors::ActorID                     actor() const; // from the creating monitor, never changes: workspaces never move between actors
         std::optional<WorkspaceIDContainer> numberedID() const;
         bool                                visible() const;
         void                                setVisible(bool visible);
@@ -84,6 +86,7 @@ namespace Workspace {
         SP<Layout::CSpace>           m_space;
         CWorkspaceWindowFocusTracker m_focusTracker;
         std::string                  m_name       = "";
+        const Actors::ActorID        m_actor      = Actors::HUMAN_ACTOR_ID;
         bool                         m_visible    = false;
         bool                         m_wasRenamed = false;
         bool                         m_ready      = false;
