@@ -128,6 +128,10 @@ void CMonitorRuleManager::scheduleReload() {
         return;
 
     m_reloadScheduled = true;
+
+    // the reload runs as the next frame renders, so ask for one: on a still screen it would wait for the next damage
+    for (auto const& m : State::monitorState()->monitors())
+        m->scheduleFrame();
 }
 
 void CMonitorRuleManager::ensureMonitorStatus() {
