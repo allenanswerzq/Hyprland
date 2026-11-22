@@ -42,9 +42,9 @@ class CVirtualPointerV1Resource {
     PHLMONITORREF m_boundOutput;
 
   private:
-    SP<CZwlrVirtualPointerV1>           m_resource;
+    SP<CZwlrVirtualPointerV1> m_resource;
 
-    uint32_t                            m_axis = 0;
+    uint32_t                  m_axis = 0;
     // The frame's axis source, which applies to all of its axis events.
     wl_pointer_axis_source              m_axisSource = WL_POINTER_AXIS_SOURCE_WHEEL;
 

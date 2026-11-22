@@ -9,6 +9,7 @@
 #include <protocols/InputMethodV2.hpp>
 #include <Compositor.hpp>
 #include <event/EventBus.hpp>
+#include <managers/ActorManager.hpp>
 #include <managers/SeatManager.hpp>
 #include <managers/eventLoop/EventLoopManager.hpp>
 #include <managers/input/InputManager.hpp>
@@ -391,7 +392,7 @@ class CDataDeviceDragTest : public CDataDeviceTest {
         m_previousEventLoop             = std::move(g_pEventLoopManager);
         m_previousEventBus              = std::move(Event::bus());
         m_previousSeat                  = std::move(PROTO::seat);
-        m_previousSeatManager           = std::move(g_pSeatManager);
+        m_previousActors                = std::move(Actor::mgr());
         m_previousCursorShape           = std::move(PROTO::cursorShape);
         m_previousIdleInhibit           = std::move(PROTO::idleInhibit);
         m_previousVirtualKeyboard       = std::move(PROTO::virtualKeyboard);
@@ -408,7 +409,7 @@ class CDataDeviceDragTest : public CDataDeviceTest {
         g_pCompositor->m_isShuttingDown = true; // skip input hit testing
         g_pEventLoopManager             = makeUnique<CEventLoopManager>(display(), wl_display_get_event_loop(display()));
         PROTO::seat                     = makeUnique<CWLSeatProtocol>(&wl_seat_interface, 9, "dnd-test-seat");
-        g_pSeatManager                  = makeUnique<CSeatManager>();
+        Actor::mgr()                    = makeUnique<Actor::CActorManager>(); // g_pSeatManager is its human's seat
         PROTO::cursorShape              = makeUnique<CCursorShapeProtocol>(&wp_cursor_shape_manager_v1_interface, 1, "dnd-test-cursor");
         PROTO::idleInhibit              = makeUnique<CIdleInhibitProtocol>(&zwp_idle_inhibit_manager_v1_interface, 1, "dnd-test-idle");
         PROTO::virtualKeyboard          = makeUnique<CVirtualKeyboardProtocol>(&zwp_virtual_keyboard_manager_v1_interface, 1, "dnd-test-keyboard");
@@ -442,7 +443,7 @@ class CDataDeviceDragTest : public CDataDeviceTest {
         PROTO::virtualKeyboard = std::move(m_previousVirtualKeyboard);
         PROTO::idleInhibit     = std::move(m_previousIdleInhibit);
         PROTO::cursorShape     = std::move(m_previousCursorShape);
-        g_pSeatManager         = std::move(m_previousSeatManager);
+        Actor::mgr()           = std::move(m_previousActors);
         PROTO::seat            = std::move(m_previousSeat);
         g_pEventLoopManager    = std::move(m_previousEventLoop);
         g_pCompositor          = std::move(m_previousCompositor);
@@ -554,7 +555,7 @@ class CDataDeviceDragTest : public CDataDeviceTest {
     UP<CEventLoopManager>        m_previousEventLoop;
     UP<Event::CEventBus>         m_previousEventBus;
     UP<CWLSeatProtocol>          m_previousSeat;
-    UP<CSeatManager>             m_previousSeatManager;
+    UP<Actor::CActorManager>     m_previousActors;
     UP<CCursorShapeProtocol>     m_previousCursorShape;
     UP<CIdleInhibitProtocol>     m_previousIdleInhibit;
     UP<CVirtualKeyboardProtocol> m_previousVirtualKeyboard;

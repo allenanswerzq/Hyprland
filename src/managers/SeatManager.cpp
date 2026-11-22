@@ -93,6 +93,10 @@ CSeatManager* SCurrentSeat::operator->() const {
     return Actor::mgr()->current()->m_seat.get();
 }
 
+SCurrentSeat::operator bool() const {
+    return Actor::mgr() && Actor::mgr()->current() && Actor::mgr()->current()->m_seat;
+}
+
 CSeatManager::CSeatManager() {
     m_listeners.newSeatResource = PROTO::seat->m_events.newSeatResource.listen([this](const auto& resource) {
         if (serves(resource->client()))

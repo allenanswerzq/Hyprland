@@ -210,6 +210,7 @@ class CSeatManager {
 // the seat of the current actor, see ActorManager.hpp
 struct SCurrentSeat {
     CSeatManager* operator->() const;
+    explicit      operator bool() const;
 };
 
 inline SCurrentSeat g_pSeatManager;

@@ -617,8 +617,10 @@ void CWindowPresentation::onFocusAnimUpdate() {
 }
 
 void CWindowPresentation::refreshValues() {
-    // active means focused by the actor that owns this window
-    Actor::CScope scope{Actor::mgr()->actorFor(m_window.m_self.lock())};
+    // active means focused by the actor that owns this window, once there are actors
+    std::optional<Actor::CScope> scope;
+    if (Actor::mgr())
+        scope.emplace(Actor::mgr()->actorFor(m_window.m_self.lock()));
 
     static auto PINACTIVEALPHA   = CConfigValue<Config::FLOAT>("decoration:inactive_opacity");
     static auto PACTIVEALPHA     = CConfigValue<Config::FLOAT>("decoration:active_opacity");

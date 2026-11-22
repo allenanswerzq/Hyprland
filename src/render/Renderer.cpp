@@ -2265,8 +2265,10 @@ void IHyprRenderer::renderMirrored(CRenderContext& ctx) {
 }
 
 void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
-    // a monitor renders as its actor, so it shows that actor's focus
-    Actor::CScope scope{Actor::mgr()->actorFor(pMonitor)};
+    // a monitor renders as its actor, once there are actors, so it shows that actor's focus
+    std::optional<Actor::CScope> scope;
+    if (Actor::mgr())
+        scope.emplace(Actor::mgr()->actorFor(pMonitor));
 
     if (m_renderingMonitor || m_context.active() || !pMonitor)
         return;
