@@ -35,8 +35,10 @@ namespace Actors {
          - borrowing: the human can take over one agent client, and give it back later.
 
         While a client is borrowed, the human controls it. Its windows live on a human
-        workspace and get human input, exactly like human windows. The client still belongs
-        to the agent (its owner does not change), so it still cannot see human outputs. It gets
+        workspace and get human input, exactly like human windows. Borrowing puts the client's
+        windows together on the agent's borrow workspace (A1 for agent-001); after that they move
+        like any human window, and new ones open where the human is. The client still belongs to
+        the agent (its owner does not change), so it still cannot see human outputs. It gets
         private proxy wl_output globals for the human monitors instead.
     */
     class CAgentManager {
@@ -73,6 +75,10 @@ namespace Actors {
         std::expected<void, std::string> borrow(PHLWINDOW window);
         std::expected<void, std::string> returnWindow(PHLWINDOW window);
         bool                             isBorrowed(const wl_client* client) const;
+
+        // The human workspace that holds the windows borrowed from an agent, for example A1.
+        // With create, a missing one is made on the human's focused monitor.
+        PHLWORKSPACE borrowWorkspace(ActorID agent, bool create);
 
         // The client a borrow proxy output global belongs to, or nullopt if the global is not
         // a borrow proxy.

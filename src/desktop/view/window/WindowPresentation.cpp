@@ -9,7 +9,6 @@
 #include "../../../output/Monitor.hpp"
 #include "../../../output/MonitorWindowTransaction.hpp"
 #include "../../../protocols/core/Compositor.hpp"
-#include "../../../render/decorations/CHyprAgentBadgeDecoration.hpp"
 #include "../../../render/decorations/CHyprBorderDecoration.hpp"
 #include "../../../render/decorations/CHyprDropShadowDecoration.hpp"
 #include "../../../render/decorations/CHyprInnerGlowDecoration.hpp"
@@ -66,13 +65,10 @@ void CWindowPresentation::initialize() {
     m_shadowDecoration = makeShared<CHyprDropShadowDecoration>(WINDOW);
     m_borderDecoration = makeShared<CHyprBorderDecoration>(WINDOW);
     m_glowDecoration   = makeShared<CHyprInnerGlowDecoration>(WINDOW);
-    // Draws only while the window is borrowed from an agent.
-    m_agentBadgeDecoration = makeShared<CHyprAgentBadgeDecoration>(WINDOW);
 
     addDecorationInternal(m_shadowDecoration);
     addDecorationInternal(m_borderDecoration);
     addDecorationInternal(m_glowDecoration);
-    addDecorationInternal(m_agentBadgeDecoration);
 
     m_borderDecoration->initializeAnimations();
     Animation::mgr()->createAnimation(1.F, alpha(WINDOW_ALPHA_FADE), Config::animationTree()->getAnimationPropertyConfig("fadeIn"), WINDOW, AVARDAMAGE_ENTIRE);
@@ -123,8 +119,7 @@ void CWindowPresentation::addDecorationInternal(const SP<IHyprWindowDecoration>&
 }
 
 void CWindowPresentation::removeDecoration(IHyprWindowDecoration* decoration) {
-    if (!decoration || decoration == m_shadowDecoration.get() || decoration == m_borderDecoration.get() || decoration == m_glowDecoration.get() ||
-        decoration == m_agentBadgeDecoration.get())
+    if (!decoration || decoration == m_shadowDecoration.get() || decoration == m_borderDecoration.get() || decoration == m_glowDecoration.get())
         return;
 
     m_decosToRemove.push_back(decoration);

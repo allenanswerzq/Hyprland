@@ -799,16 +799,13 @@ void IHyprRenderer::renderWindow(CRenderContext& ctx, PHLWINDOW pWindow, PHLMONI
 
         renderdata.useNearestNeighbor = false;
 
-        for (auto const& wd : pWindow->presentation().decorations()) {
-            if (wd->getDecorationLayer() != DECORATION_LAYER_OVER)
-                continue;
+        if (renderdata.decorate) {
+            for (auto const& wd : pWindow->presentation().decorations()) {
+                if (wd->getDecorationLayer() != DECORATION_LAYER_OVER)
+                    continue;
 
-            // A fullscreen window is drawn undecorated, but a window the human
-            // borrowed from an agent keeps its agent badge.
-            if (!renderdata.decorate && (standalone || wd->getDecorationType() != DECORATION_AGENT_BADGE))
-                continue;
-
-            wd->draw(ctx, pMonitor, fullAlpha, presentation);
+                wd->draw(ctx, pMonitor, fullAlpha, presentation);
+            }
         }
 
         if (TRANSFORMEDWINDOW) {

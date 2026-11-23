@@ -85,6 +85,10 @@ std::string Actors::agentOutputName(size_t index) {
     return std::format("AGENT-{:03}", index);
 }
 
+std::string Actors::borrowWorkspaceName(ActorID agent) {
+    return std::format("A{}", agent);
+}
+
 std::string_view Actors::actorKindToString(eActorKind kind) {
     switch (kind) {
         case eActorKind::HUMAN: return "human";

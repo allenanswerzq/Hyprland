@@ -34,10 +34,11 @@ namespace Actors {
     bool                   humanControls(const SP<CWLSurfaceResource>& surface);
     bool                   humanControls(const PHLWINDOW& window);
 
-    // The agent a window is borrowed from: its owner, while the human controls it.
-    std::optional<ActorID> lenderOf(const PHLWINDOW& window);
-    // An actor's name, such as human or agent-001.
-    std::string nameOf(ActorID id);
+    // A window the human borrowed from an agent: an agent owns it, and the human controls it.
+    bool isBorrowed(const PHLWINDOW& window);
+
+    // The tags a borrowed window carries, for example "borrowed" and "agent-001".
+    std::vector<std::string> borrowTags(ActorID owner);
 
     /*
         The human's side of the desktop, which the human's config scripts (Lua) see: the human's

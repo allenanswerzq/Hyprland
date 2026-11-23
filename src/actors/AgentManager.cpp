@@ -6,13 +6,16 @@
 #include "AgentSeat.hpp"
 
 #include "../Compositor.hpp"
+#include "../config/shared/actions/ConfigActions.hpp"
 #include "../debug/log/Logger.hpp"
+#include "../desktop/history/WorkspaceHistoryTracker.hpp"
 #include "../desktop/state/FocusState.hpp"
 #include "../desktop/state/GlobalWindowController.hpp"
 #include "../desktop/state/WindowState.hpp"
 #include "../desktop/view/Group.hpp"
 #include "../desktop/view/window/Window.hpp"
 #include "../desktop/view/window/WindowGroupMembership.hpp"
+#include "../desktop/view/window/WindowPresentation.hpp"
 #include "../event/EventBus.hpp"
 #include "../managers/SeatManager.hpp"
 #include "../managers/input/InputManager.hpp"
@@ -25,6 +28,8 @@
 #include "../protocols/core/Seat.hpp"
 #include "../protocols/types/DataDevice.hpp"
 #include "../state/MonitorState.hpp"
+#include "../state/WorkspaceState.hpp"
+#include "../workspace/HLWorkspace.hpp"
 
 #include <aquamarine/backend/Backend.hpp>
 #include <wayland-server-protocol.h>
@@ -60,6 +65,44 @@ static wl_client* clientOf(const PHLWINDOW& window) {
 
     const auto SURFACE = window->wlSurface()->resource();
     return SURFACE ? SURFACE->client() : nullptr;
+}
+
+// Window rules can match a borrowed window by tag:borrowed or by its agent's name.
+static void setBorrowTags(const PHLWINDOW& window, ActorID owner, bool borrowed) {
+    bool changed = false;
+    for (const auto& tag : borrowTags(owner)) {
+        changed |= window->m_ruleApplicator->m_tagKeeper.applyTag((borrowed ? "+" : "-") + tag);
+    }
+
+    if (changed && window->mapped()) {
+        window->m_ruleApplicator->propertiesChanged(Desktop::Rule::RULE_PROP_TAG);
+        window->presentation().refreshValues();
+    }
+}
+
+// An empty borrow workspace on screen gives way to the workspace its monitor showed before,
+// as "workspace previous" does. Hyprland removes the empty workspace once it is off screen.
+static void leaveEmptyWorkspace(const PHLWORKSPACE& workspace) {
+    if (!workspace || workspace->getWindowCount() > 0)
+        return;
+
+    const auto MONITOR = workspace->m_monitor.lock();
+    if (!MONITOR || MONITOR->m_activeWorkspace != workspace)
+        return;
+
+    const auto PREVIOUS = Desktop::History::workspaceTracker()->previousWorkspace(workspace, MONITOR);
+    auto       next     = PREVIOUS.workspace.lock();
+    if (!next && PREVIOUS.target.valid()) {
+        next = State::workspaceState()->find(PREVIOUS.target);
+        if (!next)
+            next = State::workspaceState()->create(PREVIOUS.target, MONITOR);
+    }
+
+    if (!next || next == workspace)
+        return;
+
+    Config::Actions::changeWorkspace(next, MONITOR != Desktop::focusState()->monitor());
+    next->ready();
 }
 
 CAgentManager::CAgentManager() {
@@ -257,6 +300,24 @@ void CAgentManager::moveClientWindows(const wl_client* client, const PHLWORKSPAC
     }
 }
 
+PHLWORKSPACE CAgentManager::borrowWorkspace(ActorID agent, bool create) {
+    if (!isAgent(agent))
+        return nullptr;
+
+    const auto NAME = borrowWorkspaceName(agent);
+    for (const auto& ref : State::workspaceState()->workspaces()) {
+        const auto WS = ref.lock();
+        if (WS && WS->type() == Workspace::eWorkspaceType::NORMAL && WS->addressableName() == NAME && !isAgent(actorOf(WS)))
+            return WS;
+    }
+
+    const auto MONITOR = create ? humanMonitor() : nullptr;
+    if (!MONITOR)
+        return nullptr;
+
+    return State::workspaceState()->createNamed(NAME, MONITOR, NAME, false);
+}
+
 std::expected<void, std::string> CAgentManager::borrow(PHLWINDOW window) {
     if (!window || !window->mapped())
         return std::unexpected("no such window");
@@ -275,8 +336,7 @@ std::expected<void, std::string> CAgentManager::borrow(PHLWINDOW window) {
     if (isBorrowed(CLIENT))
         return std::unexpected("the window is already borrowed");
 
-    const auto MONITOR   = humanMonitor();
-    const auto WORKSPACE = MONITOR ? MONITOR->m_activeWorkspace : nullptr;
+    const auto WORKSPACE = borrowWorkspace(*OWNER, true);
     if (!WORKSPACE)
         return std::unexpected("there is no human workspace to show the window on");
 
@@ -299,9 +359,13 @@ std::expected<void, std::string> CAgentManager::borrow(PHLWINDOW window) {
     moveClientWindows(CLIENT, WORKSPACE);
 
     for (const auto& w : WINDOWS) {
+        setBorrowTags(w, *OWNER, true);
         postEvent(*OWNER, "borrowwindow", std::format("{:x}", rc<uintptr_t>(w.get())));
     }
 
+    // The human goes to the borrow workspace, on whichever monitor it is.
+    WORKSPACE->ready();
+    Config::Actions::changeWorkspace(WORKSPACE);
     Desktop::focusState()->fullWindowFocus(window, Desktop::FOCUS_REASON_OTHER);
 
     LOG(Log::DEBUG, "The human borrowed client {:x} of agent {}", rc<uintptr_t>(CLIENT), *OWNER);
@@ -314,8 +378,9 @@ std::expected<void, std::string> CAgentManager::returnWindow(PHLWINDOW window) {
     if (!BORROW)
         return std::unexpected("the window is not borrowed");
 
-    const auto OWNER     = BORROW->owner;
-    const auto WORKSPACE = workspaceFor(OWNER);
+    const auto OWNER            = BORROW->owner;
+    const auto WORKSPACE        = workspaceFor(OWNER);
+    const auto BORROW_WORKSPACE = borrowWorkspace(OWNER, false);
     if (!WORKSPACE)
         return std::unexpected("the agent's desktop is not available");
 
@@ -346,9 +411,11 @@ std::expected<void, std::string> CAgentManager::returnWindow(PHLWINDOW window) {
     std::erase_if(m_borrows, [CLIENT](const auto& other) { return other.client == CLIENT; });
 
     for (const auto& w : WINDOWS) {
+        setBorrowTags(w, OWNER, false);
         postEvent(OWNER, "returnwindow", std::format("{:x}", rc<uintptr_t>(w.get())));
     }
 
+    leaveEmptyWorkspace(BORROW_WORKSPACE);
     g_pInputManager->refocus();
 
     LOG(Log::DEBUG, "The human returned client {:x} to agent {}", rc<uintptr_t>(CLIENT), OWNER);

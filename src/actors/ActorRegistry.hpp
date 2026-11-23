@@ -33,7 +33,10 @@ namespace Actors {
     std::string                        agentName(size_t index);
     std::string                        agentSocketName(size_t index);
     std::string                        agentOutputName(size_t index);
-    std::string_view                   actorKindToString(eActorKind kind);
+    // The human workspace that holds the windows the human borrowed from an agent, for
+    // example "A1" for agent-001. Agent IDs are their numbers: agent-001 has ID 1.
+    std::string      borrowWorkspaceName(ActorID agent);
+    std::string_view actorKindToString(eActorKind kind);
 
     class CAgentSocket;
 

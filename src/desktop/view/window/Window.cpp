@@ -1265,6 +1265,13 @@ void CWindow::mapWindow() {
     if (TRAITS.suggestsNoInitialFocus)
         m_state |= WINDOW_STATE_NO_INITIAL_FOCUS;
 
+    // A new window of a borrowed client carries the borrow tags before the rules are read, so
+    // rules can match tag:borrowed.
+    if (Actors::isBorrowed(m_self.lock())) {
+        for (const auto& tag : Actors::borrowTags(owner()))
+            m_ruleApplicator->m_tagKeeper.applyTag("+" + tag);
+    }
+
     // window rules
     std::optional<Fullscreen::eFullscreenMode> requestedInternalFSMode, requestedClientFSMode;
     std::optional<Fullscreen::SFullscreenMode> requestedFSState;

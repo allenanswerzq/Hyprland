@@ -18,8 +18,6 @@
 #include "../protocols/core/Output.hpp"
 #include "../workspace/HLWorkspace.hpp"
 
-#include <format>
-
 #include <wayland-server-protocol.h>
 
 static std::optional<Actors::CPendingOutputGlobal::SScope> s_pendingOutput;
@@ -98,19 +96,16 @@ bool Actors::humanControls(const PHLWINDOW& window) {
     return controllerOf(window) == HUMAN_ACTOR_ID;
 }
 
-std::optional<Actors::ActorID> Actors::lenderOf(const PHLWINDOW& window) {
-    if (!window || !isAgent(window->owner()) || !humanControls(window))
-        return std::nullopt;
-
-    return window->owner();
+bool Actors::isBorrowed(const PHLWINDOW& window) {
+    return window && isAgent(window->owner()) && humanControls(window);
 }
 
-std::string Actors::nameOf(ActorID id) {
-    const auto ACTOR = g_pActorRegistry ? g_pActorRegistry->actor(id) : nullptr;
-    if (ACTOR)
-        return ACTOR->name;
+std::vector<std::string> Actors::borrowTags(ActorID owner) {
+    std::vector<std::string> tags = {"borrowed"};
+    if (const auto ACTOR = g_pActorRegistry ? g_pActorRegistry->actor(owner) : nullptr; ACTOR)
+        tags.emplace_back(ACTOR->name);
 
-    return id == HUMAN_ACTOR_ID ? "human" : std::format("actor-{}", id);
+    return tags;
 }
 
 bool Actors::humanSees(const PHLMONITOR& monitor) {

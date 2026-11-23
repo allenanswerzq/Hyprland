@@ -12,7 +12,6 @@
 #include "FloatingOffset.hpp"
 #include "../../../managers/fullscreen/FullscreenPresentation.hpp"
 
-class CHyprAgentBadgeDecoration;
 class CHyprBorderDecoration;
 class CHyprDropShadowDecoration;
 class CHyprInnerGlowDecoration;
@@ -137,7 +136,6 @@ namespace Desktop::View {
         SP<CHyprDropShadowDecoration>                            m_shadowDecoration;
         SP<CHyprBorderDecoration>                                m_borderDecoration;
         SP<CHyprInnerGlowDecoration>                             m_glowDecoration;
-        SP<CHyprAgentBadgeDecoration>                            m_agentBadgeDecoration;
         Types::CMultiAVarContainer<float, uint8_t>               m_alpha;
         PHLANIMVAR<float>                                        m_dimPercent;
         PHLANIMVAR<float>                                        m_notRespondingTint;

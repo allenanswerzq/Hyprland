@@ -243,9 +243,8 @@ namespace Monitor {
             SC_SURFACES     = (1 << 15),
             SC_ERRORBAR     = (1 << 16),
             SC_FADEOUT      = (1 << 17),
-            SC_BORROWED     = (1 << 18),
 
-            SC_CHECKS_COUNT = 19,
+            SC_CHECKS_COUNT = 18,
         };
 
         // keep in sync with socket1 output
