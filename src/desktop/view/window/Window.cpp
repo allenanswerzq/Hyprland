@@ -1904,6 +1904,13 @@ void CWindow::commitWindow(bool initialCommit) {
             g_pHyprRenderer->damageWindow(m_self.lock());
     }
 
+    // A window shown inside another one (actors/WindowEmbeds) is seen through its host, though its own
+    // workspace is hidden. Its commit redraws the host's box, which also covers its subsurfaces, wherever they moved.
+    if (!m_workspace->visible() && g_pWindowEmbeds && g_pWindowEmbeds->hostOf(m_self.lock())) {
+        g_pWindowEmbeds->damage(m_self.lock());
+        return;
+    }
+
     if (!m_workspace->visible())
         return;
 
