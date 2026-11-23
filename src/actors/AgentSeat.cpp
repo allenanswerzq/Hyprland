@@ -12,6 +12,7 @@
 #include "../helpers/time/Time.hpp"
 #include "../layout/LayoutManager.hpp"
 #include "../layout/target/WindowTarget.hpp"
+#include "../managers/eventLoop/EventLoopManager.hpp"
 #include "../managers/SeatManager.hpp"
 #include "../output/Monitor.hpp"
 #include "../protocols/PrimarySelection.hpp"
@@ -330,6 +331,14 @@ void CAgentSeat::setPointerFocus(SP<CWLSurfaceResource> surface, const Vector2D&
         m_pointerFocus.reset();
         m_pointerWindow.reset();
         m_pressedButtons.clear();
+
+        // What is under the pointer now gets it, as the human's pointer does, so a menu that
+        // opens under a still pointer after another one closed gets the pointer too. Later:
+        // the surface tree is still changing while a surface is destroyed.
+        g_pEventLoopManager->doLater([actor = m_actor] {
+            if (const auto SEAT = g_pAgentManager ? g_pAgentManager->seat(actor) : nullptr; SEAT && !SEAT->m_pointerFocus)
+                SEAT->updatePointerFocus(Time::millis(Time::steadyNow()));
+        });
     });
 
     forEachPointer(surface->client(), [&](const SP<CWLPointerResource>& p) {
