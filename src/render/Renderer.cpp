@@ -3126,7 +3126,7 @@ void IHyprRenderer::damageSurface(SP<CWLSurfaceResource> pSurface, double x, dou
     if (g_pWindowEmbeds) {
         auto window = Desktop::View::CWindow::fromView(WLSURF->view());
         if (const auto SUBSURFACE = window ? nullptr : Desktop::View::CSubsurface::fromView(WLSURF->view()))
-            window = SUBSURFACE->m_windowParent.lock();
+            window = SUBSURFACE->windowOwner();
         if (window && g_pWindowEmbeds->hostOf(window) && !shouldRenderWindow(window)) {
             g_pWindowEmbeds->damage(window);
             return;

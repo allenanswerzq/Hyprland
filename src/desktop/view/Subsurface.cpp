@@ -339,6 +339,10 @@ Vector2D CSubsurface::renderScale() const {
     return Render::windowSubsurfaceScale(m_windowParent.lock());
 }
 
+PHLWINDOW CSubsurface::windowOwner() const {
+    return m_windowParent.lock();
+}
+
 void CSubsurface::initExistingSubsurfaces(SP<CWLSurfaceResource> pSurface) {
     for (auto const& s : pSurface->m_subsurfaces) {
         if (!s || s->m_surface->m_hlSurface /* already assigned */)
