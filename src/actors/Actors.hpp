@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "ActorTypes.hpp"
@@ -32,6 +33,11 @@ namespace Actors {
     bool                   humanControls(const wl_client* client);
     bool                   humanControls(const SP<CWLSurfaceResource>& surface);
     bool                   humanControls(const PHLWINDOW& window);
+
+    // The agent a window is borrowed from: its owner, while the human controls it.
+    std::optional<ActorID> lenderOf(const PHLWINDOW& window);
+    // An actor's name, such as human or agent-001.
+    std::string nameOf(ActorID id);
 
     /*
         The human's side of the desktop, which the human's config scripts (Lua) see: the human's
