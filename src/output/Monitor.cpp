@@ -1,6 +1,7 @@
 #include "Monitor.hpp"
 #include "../actors/ActorRegistry.hpp"
 #include "../actors/Actors.hpp"
+#include "../actors/WindowEmbeds.hpp"
 #include "../desktop/view/window/WindowEffectsController.hpp"
 #include "../desktop/view/window/WindowPresentation.hpp"
 #include "../helpers/MiscFunctions.hpp"
@@ -1864,6 +1865,10 @@ void CMonitor::recheckSolitary() {
         return;
 
     m_solitaryClient = Fullscreen::controller()->getFullscreenWindow(m_self.lock());
+
+    // A window that shows others inside it (actors/WindowEmbeds) is more than its own buffer.
+    if (const auto SOLITARY = m_solitaryClient.lock(); SOLITARY && g_pWindowEmbeds && !g_pWindowEmbeds->embeddedIn(SOLITARY).empty())
+        m_solitaryClient.reset();
 }
 
 uint8_t CMonitor::isTearingBlocked(bool full) {

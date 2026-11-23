@@ -59,6 +59,7 @@
 #include "../../../render/scene/SceneSelection.hpp"
 #include "../../../ipc/s2/S2.hpp"
 #include "../../../actors/Actors.hpp"
+#include "../../../actors/WindowEmbeds.hpp"
 #include "../../../actors/AgentManager.hpp"
 #include "../../../managers/input/InputManager.hpp"
 #include "../../../pointer/PointerController.hpp"
@@ -419,7 +420,11 @@ void CWindow::updateSurfaceScaleTransformDetails(bool force) {
         m_wlSurface->resource()->breadthfirst([PNEWMONITOR](SP<CWLSurfaceResource> s, const Vector2D& offset, void* d) { s->enter(PNEWMONITOR->m_self.lock()); }, nullptr);
     }
 
-    const auto PMONITOR = m_monitor.lock();
+    // A window shown inside another one (actors/WindowEmbeds) renders for its host's monitor.
+    auto       PMONITOR = m_monitor.lock();
+    const auto HOST     = g_pWindowEmbeds ? g_pWindowEmbeds->hostOf(m_self.lock()) : nullptr;
+    if (HOST && HOST->m_monitor)
+        PMONITOR = HOST->m_monitor.lock();
 
     m_wlSurface->resource()->breadthfirst(
         [PMONITOR](SP<CWLSurfaceResource> s, const Vector2D& offset, void* d) {
@@ -432,6 +437,13 @@ void CWindow::updateSurfaceScaleTransformDetails(bool force) {
             PSURFACE->sendTransform(PMONITOR->m_transform);
         },
         nullptr);
+
+    if (g_pWindowEmbeds) {
+        for (const auto& embed : g_pWindowEmbeds->embeddedIn(m_self.lock())) {
+            if (const auto EMBEDDED = embed.window.lock())
+                EMBEDDED->updateSurfaceScaleTransformDetails(true);
+        }
+    }
 }
 
 void CWindow::syncInitialWorkspaceToken(PHLWORKSPACE pWorkspace) {

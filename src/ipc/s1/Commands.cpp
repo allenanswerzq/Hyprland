@@ -2,6 +2,7 @@
 #include "../../actors/ActorRegistry.hpp"
 #include "../../actors/Actors.hpp"
 #include "../../actors/AgentManager.hpp"
+#include "../../actors/WindowEmbeds.hpp"
 #include "../../desktop/view/window/WindowFullscreenPolicy.hpp"
 #include "../../desktop/view/window/WindowGroupMembership.hpp"
 #include "../../desktop/view/window/WindowPresentation.hpp"
@@ -2139,8 +2140,11 @@ static std::string actorsRequest(eHyprCtlOutputFormat format, std::string reques
     return result;
 }
 
-// actor borrow <window>, actor return <window>. The window is any window selector, for
-// example address:0x1234.
+// actor borrow <window>, actor return <window>,
+// actor embed <window> <host> <x> <y> <width> <height> <sourceX> <sourceY>, and
+// actor unembed <window>. Windows are any window selector, for example address:0x1234. Embed
+// shows window inside host, in the box x, y, width, height of the host, with the point sourceX,
+// sourceY of window at the box's top left corner; all of it in logical pixels.
 static std::string actorRequest(eHyprCtlOutputFormat format, std::string request) {
     CVarList   vars(request, 0, ' ');
 
@@ -2150,13 +2154,43 @@ static std::string actorRequest(eHyprCtlOutputFormat format, std::string request
         return result ? "ok" : result.error();
     };
 
+    const auto WINDOW = [&vars](size_t i) { return Desktop::viewState()->query().selector(vars[i]).runWindow(); };
+
+    if (vars.size() >= 2 && vars[1] == "embed") {
+        if (vars.size() != 10)
+            return RESULT(std::unexpected("usage: actor embed <window> <host> <x> <y> <width> <height> <sourceX> <sourceY>"));
+
+        std::array<double, 6> numbers = {};
+        for (size_t i = 0; i < numbers.size(); ++i) {
+            try {
+                numbers[i] = std::stod(vars[i + 4]);
+            } catch (...) { return RESULT(std::unexpected(std::format("not a number: {}", vars[i + 4]))); }
+        }
+
+        if (!g_pWindowEmbeds)
+            return RESULT(std::unexpected("embedding is unavailable"));
+
+        return RESULT(g_pWindowEmbeds->embed(WINDOW(2), WINDOW(3), CBox{numbers[0], numbers[1], numbers[2], numbers[3]}, Vector2D{numbers[4], numbers[5]}));
+    }
+
+    if (vars.size() == 3 && vars[1] == "unembed") {
+        const auto PWINDOW = WINDOW(2);
+        if (!PWINDOW)
+            return RESULT(std::unexpected("window not found"));
+
+        if (!g_pWindowEmbeds)
+            return RESULT(std::unexpected("embedding is unavailable"));
+
+        return RESULT(g_pWindowEmbeds->unembed(PWINDOW));
+    }
+
     if (vars.size() < 3 || (vars[1] != "borrow" && vars[1] != "return"))
-        return RESULT(std::unexpected("usage: actor borrow|return <window>"));
+        return RESULT(std::unexpected("usage: actor borrow|return|unembed <window>, or actor embed <window> <host> <x> <y> <width> <height> <sourceX> <sourceY>"));
 
     if (!g_pAgentManager)
         return RESULT(std::unexpected("there are no agents"));
 
-    const auto PWINDOW = Desktop::viewState()->query().selector(vars[2]).runWindow();
+    const auto PWINDOW = WINDOW(2);
     if (!PWINDOW)
         return RESULT(std::unexpected("window not found"));
 

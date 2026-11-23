@@ -3,6 +3,7 @@
 #include "actors/ActorRegistry.hpp"
 #include "actors/Actors.hpp"
 #include "actors/AgentManager.hpp"
+#include "actors/WindowEmbeds.hpp"
 #include "helpers/MiscFunctions.hpp"
 #include "render/decorations/DecorationPositioner.hpp"
 #include "config/supplementary/executor/Executor.hpp"
@@ -455,6 +456,7 @@ void CCompositor::initServer(std::string socketName, int socketFd) {
     // Agent seats, agent monitors and agent IPC. Agent monitors are created once the backend
     // runs, in startCompositor.
     g_pAgentManager = makeUnique<Actors::CAgentManager>();
+    g_pWindowEmbeds = makeUnique<Actors::CWindowEmbeds>();
 
     setenv("WAYLAND_DISPLAY", m_wlDisplaySocket.c_str(), 1);
     if (!getenv("XDG_CURRENT_DESKTOP")) {
@@ -644,6 +646,7 @@ void CCompositor::cleanup() {
     g_pXWayland.reset();
 
     wl_display_destroy_clients(g_pCompositor->m_wlDisplay);
+    g_pWindowEmbeds.reset();
     g_pAgentManager.reset();
     g_pActorRegistry.reset();
 

@@ -1,5 +1,6 @@
 #include "Renderer.hpp"
 #include "../actors/Actors.hpp"
+#include "../actors/WindowEmbeds.hpp"
 #include "../desktop/view/Subsurface.hpp"
 #include "SurfaceDamage.hpp"
 #include "../Compositor.hpp"
@@ -205,6 +206,10 @@ IHyprRenderer::IHyprRenderer() {
                 }
 
                 if (!w->wlSurface() || !w->wlSurface()->resource() || shouldRenderWindow(w.lock()))
+                    continue;
+
+                // An embedded window shown in its host gets its frames from the host's monitor.
+                if (const auto HOST = g_pWindowEmbeds ? g_pWindowEmbeds->hostOf(w.lock()) : nullptr; HOST && shouldRenderWindow(HOST))
                     continue;
 
                 w->wlSurface()->resource()->breadthfirst(
@@ -799,6 +804,8 @@ void IHyprRenderer::renderWindow(CRenderContext& ctx, PHLWINDOW pWindow, PHLMONI
 
         renderdata.useNearestNeighbor = false;
 
+        renderEmbeddedWindows(ctx, pWindow, renderdata);
+
         if (renderdata.decorate) {
             for (auto const& wd : pWindow->presentation().decorations()) {
                 if (wd->getDecorationLayer() != DECORATION_LAYER_OVER)
@@ -1035,6 +1042,60 @@ SP<ITexture> IHyprRenderer::createTexture(const SP<Aquamarine::IBuffer> buffer, 
     }
 
     return tex;
+}
+
+// Draws the windows embedded in host (actors/WindowEmbeds) over it, each clipped to its box.
+// hostData is how the host's own surfaces were drawn: its position, monitor and alpha.
+void IHyprRenderer::renderEmbeddedWindows(CRenderContext& ctx, PHLWINDOW host, const CSurfacePassElement::SRenderData& hostData) {
+    if (!g_pWindowEmbeds)
+        return;
+
+    const auto PMONITOR = hostData.pMonitor.lock();
+    if (!PMONITOR)
+        return;
+
+    for (const auto& embed : g_pWindowEmbeds->embeddedIn(host)) {
+        const auto WINDOW = embed.window.lock();
+        if (!WINDOW || !WINDOW->mapped() || !WINDOW->wlSurface() || !WINDOW->wlSurface()->resource())
+            continue;
+
+        const auto ORIGIN = hostData.pos + embed.box.pos();
+        auto       clip   = CBox{ORIGIN, embed.box.size()}.translate(-PMONITOR->m_position).scale(PMONITOR->m_scale).round();
+        if (!hostData.clipBox.empty())
+            clip = clip.intersection(hostData.clipBox);
+        if (clip.empty())
+            continue;
+
+        const auto                       SIZE = WINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+
+        CSurfacePassElement::SRenderData data = hostData;
+        data.pWindow                          = WINDOW;
+        data.pos                              = ORIGIN - embed.source;
+        data.w                                = SIZE.x;
+        data.h                                = SIZE.y;
+        data.clipBox                          = clip;
+        data.blur                             = false;
+        data.decorate                         = false;
+        data.dontRound                        = true;
+        data.rounding                         = 0;
+        data.popup                            = false;
+        data.squishOversized                  = true;
+        data.surfaceCounter                   = 0;
+
+        WINDOW->wlSurface()->resource()->breadthfirst(
+            [this, &ctx, &data, &WINDOW](SP<CWLSurfaceResource> s, const Vector2D& offset, void*) {
+                if (!s->m_current.texture || s->m_current.size.x < 1 || s->m_current.size.y < 1)
+                    return;
+
+                data.localPos    = offset;
+                data.texture     = s->m_current.texture;
+                data.surface     = s;
+                data.mainSurface = s == WINDOW->wlSurface()->resource();
+                addPassElement(ctx, makeUnique<CSurfacePassElement>(data));
+                data.surfaceCounter++;
+            },
+            nullptr);
+    }
 }
 
 void IHyprRenderer::renderLayer(CRenderContext& ctx, PHLLS pLayer, PHLMONITOR pMonitor, const Time::steady_tp& time, bool popups, bool lockscreen, bool workspaceScene) {
@@ -2855,6 +2916,14 @@ void IHyprRenderer::sendFrameEventsToWorkspace(PHLMONITOR pMonitor, PHLWORKSPACE
             continue;
 
         view->wlSurface()->resource()->frame(now);
+
+        // Windows shown inside this one draw at its pace (actors/WindowEmbeds).
+        if (const auto WINDOW = Desktop::View::CWindow::fromView(view); WINDOW && g_pWindowEmbeds) {
+            for (const auto& embed : g_pWindowEmbeds->embeddedIn(WINDOW)) {
+                if (const auto EMBEDDED = embed.window.lock(); EMBEDDED && EMBEDDED->wlSurface() && EMBEDDED->wlSurface()->resource())
+                    EMBEDDED->wlSurface()->resource()->frame(now);
+            }
+        }
     }
 }
 
@@ -3050,6 +3119,18 @@ void IHyprRenderer::damageSurface(SP<CWLSurfaceResource> pSurface, double x, dou
     if (!WLSURF) {
         LOG(Log::ERR, "BUG THIS: No CWLSurface for surface in damageSurface!!!");
         return;
+    }
+
+    // A window shown inside another one (actors/WindowEmbeds) changes only what its host shows.
+    // Where it sits itself is out of sight, so its own monitor need not draw again.
+    if (g_pWindowEmbeds) {
+        auto window = Desktop::View::CWindow::fromView(WLSURF->view());
+        if (const auto SUBSURFACE = window ? nullptr : Desktop::View::CSubsurface::fromView(WLSURF->view()))
+            window = SUBSURFACE->m_windowParent.lock();
+        if (window && g_pWindowEmbeds->hostOf(window) && !shouldRenderWindow(window)) {
+            g_pWindowEmbeds->damage(window);
+            return;
+        }
     }
 
     const auto SURFACE_BOX = WLSURF->getSurfaceBoxGlobal();
