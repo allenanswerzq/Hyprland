@@ -53,7 +53,7 @@ uint64_t CHyprAgentBadgeDecoration::getDecorationFlags() {
 }
 
 eDecorationLayer CHyprAgentBadgeDecoration::getDecorationLayer() {
-    return DECORATION_LAYER_OVERLAY;
+    return DECORATION_LAYER_OVER;
 }
 
 std::string CHyprAgentBadgeDecoration::getDisplayName() {

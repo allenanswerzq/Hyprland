@@ -10,8 +10,9 @@ namespace Render {
 
 /*
     Marks a window the human borrowed from an agent: a badge with the agent's name, such as
-    agent-001, in the window's top right corner. It is drawn above the window and its popups,
-    and in fullscreen too, so a borrowed window never passes for one of the human's own.
+    agent-001, in the window's top right corner. It is drawn above the window, under its popups
+    (the overlay layer is only drawn for the focused tiled window), and in fullscreen too, so a
+    borrowed window never passes for one of the human's own.
 
     Every window has one. It draws only while the window is borrowed, so it follows borrows,
     returns, and windows a borrowed app opens later, without being added or removed.
