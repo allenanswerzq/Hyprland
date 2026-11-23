@@ -1802,6 +1802,13 @@ uint32_t CMonitor::isSolitaryBlocked(bool full) {
             return reasons;
     }
 
+    // A window borrowed from an agent keeps its agent badge, which only a full render draws.
+    if (Actors::lenderOf(PCANDIDATE)) {
+        reasons |= SC_BORROWED;
+        if (!full)
+            return reasons;
+    }
+
     if (PCANDIDATE->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT) != m_size || PCANDIDATE->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) != m_position ||
         PCANDIDATE->positionAnimation()->isBeingAnimated() || PCANDIDATE->sizeAnimation()->isBeingAnimated()) {
         reasons |= SC_TRANSFORM;
