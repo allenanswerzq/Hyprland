@@ -57,6 +57,10 @@ subject the event goes to the human.
 A window is on its controller's desktop, so events about a borrowed window go to the
 human, like events about any human window.
 
+Some events are about an actor rather than an object, and name it directly: an agent
+seat's focus changes and keyboard layouts (`activewindow`, `activelayout`), and a
+capture by an agent's client (`screencast`).
+
 Lua config events follow the same rule: the config is the human's, so it hears only about
 objects on the human desktop (`Actors::humanSees`).
 

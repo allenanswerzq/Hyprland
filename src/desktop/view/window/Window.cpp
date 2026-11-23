@@ -933,9 +933,9 @@ void CWindow::onUpdateMeta(const SBackendMetadata& metadata) {
         IPC::Socket2::sock()->postEvent({.event = "windowtitlev2", .data = std::format("{:x},{}", rc<uintptr_t>(this), m_metadata->title()), .subject = m_self.lock()});
         Event::bus()->m_events.window.title.emit(m_self.lock());
 
-        if (m_self == Desktop::focusState()->window()) { // if it's the active, let's post an event to update others
-            IPC::Socket2::sock()->postEvent({.event = "activewindow", .data = std::format("{},{}", m_metadata->appID(), m_metadata->title())});
-            IPC::Socket2::sock()->postEvent({.event = "activewindowv2", .data = std::format("{:x}", rc<uintptr_t>(this))});
+        if (Actors::isFocused(m_self.lock())) { // if it's the active, let's post an event to update others
+            IPC::Socket2::sock()->postEvent({.event = "activewindow", .data = std::format("{},{}", m_metadata->appID(), m_metadata->title()), .subject = m_self.lock()});
+            IPC::Socket2::sock()->postEvent({.event = "activewindowv2", .data = std::format("{:x}", rc<uintptr_t>(this)), .subject = m_self.lock()});
 
             // no need for a hook event
         }
@@ -948,9 +948,9 @@ void CWindow::onUpdateMeta(const SBackendMetadata& metadata) {
     if (m_metadata->updateAppID(NEWCLASS)) {
         Event::bus()->m_events.window.class_.emit(m_self.lock());
 
-        if (m_self == Desktop::focusState()->window()) { // if it's the active, let's post an event to update others
-            IPC::Socket2::sock()->postEvent({.event = "activewindow", .data = std::format("{},{}", m_metadata->appID(), m_metadata->title())});
-            IPC::Socket2::sock()->postEvent({.event = "activewindowv2", .data = std::format("{:x}", rc<uintptr_t>(this))});
+        if (Actors::isFocused(m_self.lock())) { // if it's the active, let's post an event to update others
+            IPC::Socket2::sock()->postEvent({.event = "activewindow", .data = std::format("{},{}", m_metadata->appID(), m_metadata->title()), .subject = m_self.lock()});
+            IPC::Socket2::sock()->postEvent({.event = "activewindowv2", .data = std::format("{:x}", rc<uintptr_t>(this)), .subject = m_self.lock()});
 
             // no need for a hook event
         }

@@ -3123,7 +3123,8 @@ void IHyprRenderer::damageSurface(SP<CWLSurfaceResource> pSurface, double x, dou
     auto window = Desktop::View::CWindow::fromView(WLSURF->view());
     if (const auto SUBSURFACE = window ? nullptr : Desktop::View::CSubsurface::fromView(WLSURF->view()))
         window = SUBSURFACE->windowOwner();
-    if (window && !shouldRenderWindow(window) && Embed::damageThroughHost(window))
+    // The cheap embed lookup first: this runs for every surface commit.
+    if (window && Embed::hostOf(window) && !shouldRenderWindow(window) && Embed::damageThroughHost(window))
         return;
 
     const auto SURFACE_BOX = WLSURF->getSurfaceBoxGlobal();

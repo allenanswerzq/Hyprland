@@ -9,6 +9,7 @@
 #include "../desktop/view/window/Window.hpp"
 #include "../desktop/view/window/WindowGroupMembership.hpp"
 #include "../desktop/view/window/WindowPresentation.hpp"
+#include "../helpers/MiscFunctions.hpp"
 #include "../helpers/time/Time.hpp"
 #include "../ipc/s2/S2.hpp"
 #include "../layout/LayoutManager.hpp"
@@ -76,6 +77,11 @@ void CAgentSeat::addKeyboard(SP<IKeyboard> keyboard) {
 
     keyboard->m_repeatRate  = std::max(0, sc<int>(*PREPEATRATE));
     keyboard->m_repeatDelay = std::max(0, sc<int>(*PREPEATDELAY));
+
+    // Agent keyboards skip the input manager, which names the human's devices. The name shows
+    // in the agent's activelayout events.
+    if (keyboard->m_hlName.empty())
+        keyboard->m_hlName = std::format("{}-{}", nameOf(m_actor), deviceNameToInternalString(keyboard->m_deviceName));
 
     // A virtual keyboard uploads its own keymap before its first key. Until then it uses the
     // default xkb keymap, so the agent's clients always have one.
@@ -190,6 +196,8 @@ void CAgentSeat::onKeymap(SP<IKeyboard> keyboard) {
     // The keyboard that just uploaded a keymap is the one the agent is about to type with.
     m_activeKeyboard = keyboard;
     PROTO::seat->updateAgentKeymap(m_actor, keyboard);
+
+    IPC::Socket2::sock()->postEvent({.event = "activelayout", .data = std::format("{},{}", keyboard->m_hlName, keyboard->getActiveLayout()), .subject = m_actor});
 }
 
 CBox CAgentSeat::monitorBox() const {
