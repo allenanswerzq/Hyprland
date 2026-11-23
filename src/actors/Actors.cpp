@@ -4,6 +4,7 @@
 #include "AgentManager.hpp"
 
 #include "../desktop/view/window/Window.hpp"
+#include "../desktop/view/LayerSurface.hpp"
 #include "../output/Monitor.hpp"
 #include "../protocols/IdleNotify.hpp"
 #include "../protocols/IdleInhibit.hpp"
@@ -93,6 +94,23 @@ bool Actors::humanControls(const SP<CWLSurfaceResource>& surface) {
 
 bool Actors::humanControls(const PHLWINDOW& window) {
     return controllerOf(window) == HUMAN_ACTOR_ID;
+}
+
+bool Actors::humanSees(const PHLMONITOR& monitor) {
+    return !isAgentMonitor(monitor);
+}
+
+bool Actors::humanSees(const PHLWORKSPACE& workspace) {
+    return !isAgent(actorOf(workspace));
+}
+
+// The workspace covers a borrowed window whose surface is already gone, as on destroy.
+bool Actors::humanSees(const PHLWINDOW& window) {
+    return window && (humanControls(window) || (window->m_workspace && humanSees(window->m_workspace)));
+}
+
+bool Actors::humanSees(const PHLLS& layer) {
+    return layer && humanSees(layer->m_monitor.lock());
 }
 
 // Privileged globals an agent still gets. Virtual devices drive the agent's own seat. With

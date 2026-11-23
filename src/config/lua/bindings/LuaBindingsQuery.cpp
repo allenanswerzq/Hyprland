@@ -8,6 +8,7 @@
 #include "../objects/LuaWindow.hpp"
 #include "../objects/LuaWorkspace.hpp"
 
+#include "../../../actors/Actors.hpp"
 #include "../../../desktop/history/WindowHistoryTracker.hpp"
 #include "../../../desktop/history/WorkspaceHistoryTracker.hpp"
 #include "../../../desktop/rule/windowRule/WindowRuleEffectContainer.hpp"
@@ -27,6 +28,11 @@ using namespace Config;
 using namespace Config::Lua;
 using namespace Config::Lua::Bindings;
 
+/*
+    The config is the human's, so queries answer for the human's side only (Actors::humanSees).
+    Monitor selectors need no check here: they already resolve among the focused monitor's actor.
+*/
+
 namespace {
     struct SWindowQuery {
         std::optional<PHLMONITOR>   monitor;
@@ -45,6 +51,9 @@ namespace {
 }
 
 static bool windowMatchesQuery(const PHLWINDOW& w, const SWindowQuery& query) {
+    if (!Actors::humanSees(w))
+        return false;
+
     if (query.monitor) {
         const auto mon = w->m_monitor.lock();
         if (mon != *query.monitor)
@@ -131,7 +140,7 @@ static int hlGetWindows(lua_State* L) {
 
 static int hlGetActiveWindow(lua_State* L) {
     auto PWINDOW = Desktop::focusState()->window();
-    if (!PWINDOW) {
+    if (!PWINDOW || !Actors::humanSees(PWINDOW)) {
         lua_pushnil(L);
         return 1;
     }
@@ -142,7 +151,7 @@ static int hlGetActiveWindow(lua_State* L) {
 
 static int hlGetWindow(lua_State* L) {
     const auto PWINDOW = Internal::windowFromLuaSelectorOrObject(L, 1, "hl.get_window");
-    if (!PWINDOW) {
+    if (!PWINDOW || !Actors::humanSees(PWINDOW)) {
         lua_pushnil(L);
         return 1;
     }
@@ -152,13 +161,14 @@ static int hlGetWindow(lua_State* L) {
 }
 
 static int hlGetUrgentWindow(lua_State* L) {
-    const auto PWINDOW = Desktop::viewState()->query().urgent().runWindow();
-    if (!PWINDOW) {
-        lua_pushnil(L);
-        return 1;
+    for (const auto& w : Desktop::windowState()->windows()) {
+        if (w->mapped() && (w->m_hints & Desktop::View::WINDOW_HINT_URGENT) && Actors::humanSees(w)) {
+            Objects::CLuaWindow::push(L, w);
+            return 1;
+        }
     }
 
-    Objects::CLuaWindow::push(L, PWINDOW);
+    lua_pushnil(L);
     return 1;
 }
 
@@ -167,7 +177,7 @@ static int hlGetWorkspaces(lua_State* L) {
     int i = 1;
     for (const auto& wsRef : State::Workspace::state()->workspaces()) {
         const auto ws = wsRef.lock();
-        if (!ws)
+        if (!ws || !Actors::humanSees(ws))
             continue;
         Objects::CLuaWorkspace::push(L, ws);
         lua_rawseti(L, -2, i++);
@@ -177,7 +187,7 @@ static int hlGetWorkspaces(lua_State* L) {
 
 static int hlGetWorkspace(lua_State* L) {
     const auto PWORKSPACE = Internal::workspaceFromLuaSelectorOrObject(L, 1, "hl.get_workspace");
-    if (!PWORKSPACE) {
+    if (!PWORKSPACE || !Actors::humanSees(PWORKSPACE)) {
         lua_pushnil(L);
         return 1;
     }
@@ -232,6 +242,9 @@ static int hlGetMonitors(lua_State* L) {
     lua_newtable(L);
     int i = 1;
     for (const auto& mon : allMonitors ? State::monitorState()->allMonitors() : State::monitorState()->monitors()) {
+        if (!Actors::humanSees(mon))
+            continue;
+
         Objects::CLuaMonitor::push(L, mon);
         lua_rawseti(L, -2, i++);
     }
@@ -319,7 +332,7 @@ static int hlGetMonitorAt(lua_State* L) {
         y = *ty;
     }
 
-    const auto PMONITOR = State::monitorState()->query().vec(Vector2D{x, y}).run();
+    const auto PMONITOR = State::monitorState()->query().actor(Actors::HUMAN_ACTOR_ID).vec(Vector2D{x, y}).run();
     if (!PMONITOR) {
         lua_pushnil(L);
         return 1;
@@ -330,7 +343,7 @@ static int hlGetMonitorAt(lua_State* L) {
 }
 
 static int hlGetMonitorAtCursor(lua_State* L) {
-    const auto PMONITOR = State::monitorState()->query().vec(Pointer::mgr()->untransformedPosition()).run();
+    const auto PMONITOR = State::monitorState()->query().actor(Actors::HUMAN_ACTOR_ID).vec(Pointer::mgr()->untransformedPosition()).run();
     if (!PMONITOR) {
         lua_pushnil(L);
         return 1;
@@ -362,7 +375,7 @@ static int hlGetLastWindow(lua_State* L) {
 
     for (auto it = fullHistory.rbegin(); it != fullHistory.rend(); ++it) {
         const auto candidate = it->lock();
-        if (!candidate || !candidate->mapped())
+        if (!candidate || !candidate->mapped() || !Actors::humanSees(candidate))
             continue;
 
         if (current && candidate == current)
@@ -392,7 +405,7 @@ static int hlGetLastWorkspace(lua_State* L) {
     if (!ws && previous.target.valid())
         ws = State::Workspace::state()->find(previous.target);
 
-    if (!ws) {
+    if (!ws || !Actors::humanSees(ws)) {
         lua_pushnil(L);
         return 1;
     }
@@ -414,7 +427,7 @@ static int hlGetLayers(lua_State* L) {
     lua_newtable(L);
     int i = 1;
     for (const auto& mon : State::monitorState()->monitors()) {
-        if (query.monitor && mon != *query.monitor)
+        if (!Actors::humanSees(mon) || (query.monitor && mon != *query.monitor))
             continue;
 
         for (const auto& level : mon->m_layerSurfaceLayers) {

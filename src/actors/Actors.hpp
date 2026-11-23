@@ -33,6 +33,17 @@ namespace Actors {
     bool                   humanControls(const SP<CWLSurfaceResource>& surface);
     bool                   humanControls(const PHLWINDOW& window);
 
+    /*
+        The human's side of the desktop, which the human's config scripts (Lua) see: the human's
+        monitors, workspaces and layer surfaces, and the windows the human controls or that sit
+        on a human workspace, such as a borrowed window. Agent objects stay out of it, since
+        scripts written for one desktop would otherwise lay out, number or float agent ones.
+    */
+    bool humanSees(const PHLMONITOR& monitor);
+    bool humanSees(const PHLWORKSPACE& workspace);
+    bool humanSees(const PHLWINDOW& window);
+    bool humanSees(const PHLLS& layer);
+
     // Decides whether a client may see a global. Sandbox rules are applied by the caller.
     bool globalVisibleTo(const wl_client* client, const wl_global* global, bool privileged);
 
