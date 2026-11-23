@@ -1,16 +1,16 @@
-# Parallel-new's release. Pushing a tag like parallel-new-v0.57.0-1 builds this
+# Parallel's release. Pushing a tag like parallel-v0.57.0-3 builds this
 # branch on Arch Linux from Omarchy's mirror, the packages an Omarchy machine
-# runs, and attaches hyprland-parallel-new-<version>.tar.gz to the tag's release.
+# runs, and attaches hyprland-parallel-<version>.tar.gz to the tag's release.
 #
 # The tarball holds bin/Hyprland, bin/hyprctl and, in lib/, the Aquamarine and
 # Hyprutils this Hyprland needs, newer than Omarchy's. Hyprland loads those two
 # from beside itself and the rest from /usr/lib, so it runs as it is on Omarchy.
 # Aquamarine is upstream's, at the revision flake.lock pins and CI tests.
-name: Parallel-new release
+name: Parallel release
 
 on:
   push:
-    tags: ["parallel-new-v*"]
+    tags: ["parallel-v*"]
 
 permissions:
   contents: write
@@ -68,8 +68,8 @@ jobs:
 
       - name: Pack
         run: |
-          version=${GITHUB_REF_NAME#parallel-new-v}
-          name=hyprland-parallel-new-$version
+          version=${GITHUB_REF_NAME#parallel-v}
+          name=hyprland-parallel-$version
           mkdir -p "$name/bin" "$name/lib"
           cp build/Hyprland build/hyprctl/hyprctl "$name/bin/"
           strip "$name/bin/Hyprland" "$name/bin/hyprctl"
@@ -100,5 +100,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" "$TARBALL" -R "$GITHUB_REPOSITORY" \
-            --title "Parallel-new Hyprland $VERSION" \
+            --title "Parallel Hyprland $VERSION" \
             --notes "Hyprland with agent actors (HYPRLAND_AGENT_COUNT) and upstream Aquamarine $AQUAMARINE_REV, built on Omarchy's Arch mirror."

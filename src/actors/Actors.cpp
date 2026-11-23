@@ -8,9 +8,11 @@
 #include "../protocols/IdleNotify.hpp"
 #include "../protocols/IdleInhibit.hpp"
 #include "../protocols/PointerConstraints.hpp"
+#include "../protocols/Screencopy.hpp"
 #include "../protocols/ShortcutsInhibit.hpp"
 #include "../protocols/VirtualKeyboard.hpp"
 #include "../protocols/VirtualPointer.hpp"
+#include "../protocols/XDGOutput.hpp"
 #include "../protocols/core/Compositor.hpp"
 #include "../protocols/core/Output.hpp"
 #include "../workspace/HLWorkspace.hpp"
@@ -93,8 +95,13 @@ bool Actors::humanControls(const PHLWINDOW& window) {
     return controllerOf(window) == HUMAN_ACTOR_ID;
 }
 
-static bool isAgentInputGlobal(const wl_global* global) {
-    return (PROTO::virtualKeyboard && global == PROTO::virtualKeyboard->getGlobal()) || (PROTO::virtualPointer && global == PROTO::virtualPointer->getGlobal());
+// Privileged globals an agent still gets. Virtual devices drive the agent's own seat. With
+// screencopy and xdg_output an agent sees its own screen: its wl_outputs are only its own
+// monitors, and mayCapture refuses the human's monitors behind a borrow proxy.
+static bool isAgentPrivilegedGlobal(const wl_global* global) {
+    const auto IS = [global](const auto& protocol) { return protocol && global == protocol->getGlobal(); };
+
+    return IS(PROTO::virtualKeyboard) || IS(PROTO::virtualPointer) || IS(PROTO::screencopy) || IS(PROTO::xdgOutput);
 }
 
 static bool isHiddenFromAgents(const wl_global* global) {
@@ -158,7 +165,18 @@ bool Actors::globalVisibleTo(const wl_client* client, const wl_global* global, b
     if (isHiddenFromAgents(global))
         return false;
 
-    return !privileged || isAgentInputGlobal(global);
+    return !privileged || isAgentPrivilegedGlobal(global);
+}
+
+bool Actors::mayCapture(const wl_client* client, const PHLMONITOR& monitor) {
+    if (!monitor)
+        return false;
+
+    const auto OWNER = ownerOf(client);
+    if (!OWNER)
+        return false;
+
+    return !isAgent(*OWNER) || monitor->m_actor == *OWNER;
 }
 
 std::vector<SP<CWLOutputResource>> Actors::outputResourcesFor(const PHLMONITOR& monitor, wl_client* client) {

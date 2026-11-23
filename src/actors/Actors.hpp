@@ -36,6 +36,10 @@ namespace Actors {
     // Decides whether a client may see a global. Sandbox rules are applied by the caller.
     bool globalVisibleTo(const wl_client* client, const wl_global* global, bool privileged);
 
+    // Whether a client may capture a monitor's contents. An agent's client may capture only
+    // its own actor's monitors, even through a borrow proxy of a human monitor.
+    bool mayCapture(const wl_client* client, const PHLMONITOR& monitor);
+
     // wl_output resources of a client for a monitor, including borrow proxies.
     std::vector<SP<CWLOutputResource>> outputResourcesFor(const PHLMONITOR& monitor, wl_client* client);
 
