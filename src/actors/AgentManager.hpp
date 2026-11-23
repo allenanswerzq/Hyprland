@@ -48,8 +48,10 @@ namespace Actors {
         CAgentManager& operator=(const CAgentManager&) = delete;
 
         // Creates the agent monitors and IPC sockets. Called once, after the backend started.
-        void                             start();
+        void start();
 
+        // The agent's seat, or nullptr if the actor is not an agent.
+        CAgentSeat*                      seat(ActorID actor) const;
         PHLMONITOR                       monitorFor(ActorID actor) const;
         PHLWORKSPACE                     workspaceFor(ActorID actor) const;
 
@@ -99,7 +101,6 @@ namespace Actors {
             const wl_client*      client = nullptr;
         };
 
-        CAgentSeat*                                 seat(ActorID actor) const;
         SBorrow*                                    borrowOf(const wl_client* client);
         std::vector<PHLWINDOW>                      windowsOf(const wl_client* client) const;
         void                                        moveClientWindows(const wl_client* client, const PHLWORKSPACE& workspace);
