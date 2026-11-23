@@ -88,6 +88,14 @@ void CAgentSeat::addKeyboard(SP<IKeyboard> keyboard) {
     entry.modifiers = keyboard->m_keyboardEvents.modifiers.listen([this, raw](const IKeyboard::SModifiersEvent& event) { onModifiers(raw->m_self.lock(), event); });
     entry.keymap    = keyboard->m_keyboardEvents.keymap.listen([this, raw] { onKeymap(raw->m_self.lock()); });
     entry.destroy   = keyboard->m_events.destroy.listen([this, raw] {
+        // A keyboard sends destroy twice: when its client goes away, and again from ~IKeyboard.
+        // m_self is empty during the second one, so only the first one runs. Holding KEEPALIVE
+        // also delays ~IKeyboard until the erase below has finished; otherwise the erase frees
+        // the keyboard, its destructor runs this code again, and the entry is erased twice.
+        const auto KEEPALIVE = raw->m_self.lock();
+        if (!KEEPALIVE)
+            return;
+
         if (m_activeKeyboard.get() == raw) {
             m_activeKeyboard.reset();
 
@@ -99,7 +107,6 @@ void CAgentSeat::addKeyboard(SP<IKeyboard> keyboard) {
             }
         }
 
-        // Last: this erases the listener that runs this code.
         std::erase_if(m_keyboards, [raw](const auto& other) { return other.device.get() == raw; });
     });
 
@@ -122,7 +129,14 @@ void CAgentSeat::addPointer(SP<IPointer> pointer) {
     entry.button         = pointer->m_pointerEvents.button.listen([this](const IPointer::SButtonEvent& event) { onButton(event); });
     entry.axis           = pointer->m_pointerEvents.axis.listen([this](const IPointer::SAxisEvent& event) { onAxis(event); });
     entry.frame          = pointer->m_pointerEvents.frame.listen([this] { onFrame(); });
-    entry.destroy        = pointer->m_events.destroy.listen([this, raw] { std::erase_if(m_pointers, [raw](const auto& other) { return other.device.get() == raw; }); });
+    entry.destroy        = pointer->m_events.destroy.listen([this, raw] {
+        // Same as for keyboards: keep the pointer alive until the erase has finished.
+        const auto KEEPALIVE = raw->m_self.lock();
+        if (!KEEPALIVE)
+            return;
+
+        std::erase_if(m_pointers, [raw](const auto& other) { return other.device.get() == raw; });
+    });
 
     onMonitorChanged();
 
