@@ -330,7 +330,7 @@ ActionResult Actions::pinWindow(eTogglableAction action, std::optional<PHLWINDOW
     PWORKSPACE->rememberFocusedWindow(
         Desktop::viewState()->hitTest().windowAt(g_pInputManager->getMouseCoordsInternal(), Desktop::View::RESERVED_EXTENTS | Desktop::View::INPUT_EXTENTS));
 
-    IPC::Socket2::sock()->postEvent({.event = "pin", .data = std::format("{:x},{}", rc<uintptr_t>(window.get()), sc<int>(wantPin))});
+    IPC::Socket2::sock()->postEvent({.event = "pin", .data = std::format("{:x},{}", rc<uintptr_t>(window.get()), sc<int>(wantPin)), .subject = window});
     Event::bus()->m_events.window.pin.emit(window);
 
     g_pHyprRenderer->damageWindow(window, true);
@@ -1376,7 +1376,7 @@ static void moveWindowIntoGroupHelper(PHLWINDOW pWindow, PHLWINDOW pWindowInDire
     Desktop::focusState()->fullWindowFocus(pWindow, Desktop::FOCUS_REASON_DISPATCH_MOVEWINDOWINTOGROUP);
     pWindow->warpCursor();
 
-    IPC::Socket2::sock()->postEvent({.event = "moveintogroup", .data = std::format("{:x}", rc<uintptr_t>(pWindow.get()))});
+    IPC::Socket2::sock()->postEvent({.event = "moveintogroup", .data = std::format("{:x}", rc<uintptr_t>(pWindow.get())), .subject = pWindow});
 }
 
 static void moveWindowOutOfGroupHelper(PHLWINDOW pWindow, Math::eDirection direction = Math::DIRECTION_DEFAULT) {
@@ -1397,7 +1397,7 @@ static void moveWindowOutOfGroupHelper(PHLWINDOW pWindow, Math::eDirection direc
         group->current()->warpCursor();
     }
 
-    IPC::Socket2::sock()->postEvent({.event = "moveoutofgroup", .data = std::format("{:x}", rc<uintptr_t>(pWindow.get()))});
+    IPC::Socket2::sock()->postEvent({.event = "moveoutofgroup", .data = std::format("{:x}", rc<uintptr_t>(pWindow.get())), .subject = pWindow});
 }
 
 ActionResult Actions::moveIntoGroup(Math::eDirection direction, std::optional<PHLWINDOW> w) {

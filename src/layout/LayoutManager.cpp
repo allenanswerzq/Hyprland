@@ -46,8 +46,9 @@ void CLayoutManager::changeFloatingMode(SP<ITarget> target) {
         Fullscreen::controller()->setFullscreenMode(target->window(), pastFsMode);
 
     IPC::Socket2::sock()->postEvent({
-        .event = "changefloatingmode",
-        .data  = std::format("{:x},{}", rc<uintptr_t>(target->window().get()), sc<int>(target->floating())),
+        .event   = "changefloatingmode",
+        .data    = std::format("{:x},{}", rc<uintptr_t>(target->window().get()), sc<int>(target->floating())),
+        .subject = target->window(),
     });
     Event::bus()->m_events.window.floating.emit(target->window());
 }

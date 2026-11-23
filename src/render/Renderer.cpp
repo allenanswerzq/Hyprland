@@ -1,6 +1,6 @@
 #include "Renderer.hpp"
 #include "../actors/Actors.hpp"
-#include "../actors/WindowEmbeds.hpp"
+#include "../embed/WindowEmbeds.hpp"
 #include "../desktop/view/Subsurface.hpp"
 #include "SurfaceDamage.hpp"
 #include "../Compositor.hpp"
@@ -209,7 +209,7 @@ IHyprRenderer::IHyprRenderer() {
                     continue;
 
                 // An embedded window shown in its host gets its frames from the host's monitor.
-                if (const auto HOST = g_pWindowEmbeds ? g_pWindowEmbeds->hostOf(w.lock()) : nullptr; HOST && shouldRenderWindow(HOST))
+                if (const auto HOST = Embed::hostOf(w.lock()); HOST && shouldRenderWindow(HOST))
                     continue;
 
                 w->wlSurface()->resource()->breadthfirst(
@@ -1044,17 +1044,14 @@ SP<ITexture> IHyprRenderer::createTexture(const SP<Aquamarine::IBuffer> buffer, 
     return tex;
 }
 
-// Draws the windows embedded in host (actors/WindowEmbeds) over it, each clipped to its box.
+// Draws the windows embedded in host (src/embed) over it, each clipped to its box.
 // hostData is how the host's own surfaces were drawn: its position, monitor and alpha.
 void IHyprRenderer::renderEmbeddedWindows(CRenderContext& ctx, PHLWINDOW host, const CSurfacePassElement::SRenderData& hostData) {
-    if (!g_pWindowEmbeds)
-        return;
-
     const auto PMONITOR = hostData.pMonitor.lock();
     if (!PMONITOR)
         return;
 
-    for (const auto& embed : g_pWindowEmbeds->embeddedIn(host)) {
+    for (const auto& embed : Embed::embeddedIn(host)) {
         const auto WINDOW = embed.window.lock();
         if (!WINDOW || !WINDOW->mapped() || !WINDOW->wlSurface() || !WINDOW->wlSurface()->resource())
             continue;
@@ -2917,9 +2914,9 @@ void IHyprRenderer::sendFrameEventsToWorkspace(PHLMONITOR pMonitor, PHLWORKSPACE
 
         view->wlSurface()->resource()->frame(now);
 
-        // Windows shown inside this one draw at its pace (actors/WindowEmbeds).
-        if (const auto WINDOW = Desktop::View::CWindow::fromView(view); WINDOW && g_pWindowEmbeds) {
-            for (const auto& embed : g_pWindowEmbeds->embeddedIn(WINDOW)) {
+        // Windows shown inside this one draw at its pace (src/embed).
+        if (const auto WINDOW = Desktop::View::CWindow::fromView(view); WINDOW) {
+            for (const auto& embed : Embed::embeddedIn(WINDOW)) {
                 if (const auto EMBEDDED = embed.window.lock(); EMBEDDED && EMBEDDED->wlSurface() && EMBEDDED->wlSurface()->resource())
                     EMBEDDED->wlSurface()->resource()->frame(now);
             }
@@ -3121,17 +3118,13 @@ void IHyprRenderer::damageSurface(SP<CWLSurfaceResource> pSurface, double x, dou
         return;
     }
 
-    // A window shown inside another one (actors/WindowEmbeds) changes only what its host shows.
+    // A window shown inside another one (src/embed) changes only what its host shows.
     // Where it sits itself is out of sight, so its own monitor need not draw again.
-    if (g_pWindowEmbeds) {
-        auto window = Desktop::View::CWindow::fromView(WLSURF->view());
-        if (const auto SUBSURFACE = window ? nullptr : Desktop::View::CSubsurface::fromView(WLSURF->view()))
-            window = SUBSURFACE->windowOwner();
-        if (window && g_pWindowEmbeds->hostOf(window) && !shouldRenderWindow(window)) {
-            g_pWindowEmbeds->damage(window);
-            return;
-        }
-    }
+    auto window = Desktop::View::CWindow::fromView(WLSURF->view());
+    if (const auto SUBSURFACE = window ? nullptr : Desktop::View::CSubsurface::fromView(WLSURF->view()))
+        window = SUBSURFACE->windowOwner();
+    if (window && !shouldRenderWindow(window) && Embed::damageThroughHost(window))
+        return;
 
     const auto SURFACE_BOX = WLSURF->getSurfaceBoxGlobal();
 

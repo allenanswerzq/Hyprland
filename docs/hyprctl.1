@@ -88,6 +88,23 @@ Borrows an agent window for the human, or returns it to its agent.
 A borrowed window behaves like a human window until it is returned.
 \f[I]window\f[R] is a window selector, for example address:0x1234.
 .RE
+.PP
+\f[B]embed\f[R] \f[I]window\f[R] \f[I]host\f[R] \f[I]x\f[R] \f[I]y\f[R] \f[I]width\f[R] \f[I]height\f[R] \f[I]sourceX\f[R] \f[I]sourceY\f[R]
+.RS
+.PP
+Shows \f[I]window\f[R] inside \f[I]host\f[R], in the box \f[I]x\f[R], \f[I]y\f[R], \f[I]width\f[R], \f[I]height\f[R] of
+the host.
+The point \f[I]sourceX\f[R], \f[I]sourceY\f[R] of the window lands at the box\[cq]s
+top left corner.
+Numbers are logical pixels.
+Input is not forwarded.
+.RE
+.PP
+\f[B]unembed\f[R] \f[I]window\f[R]
+.RS
+.PP
+Stops showing \f[I]window\f[R] inside its host.
+.RE
 .SH INFO COMMANDS
 \f[B]version\f[R]
 .RS

@@ -1,32 +1,39 @@
 #pragma once
 
-#include <cstdint>
 #include <expected>
 #include <string>
-#include <vector>
-
-#include <hyprutils/os/FileDescriptor.hpp>
 
 #include "ActorTypes.hpp"
 #include "../helpers/memory/Memory.hpp"
 
-struct wl_event_source;
+namespace IPC::Socket1 {
+    class CSocket1;
+}
+
+namespace IPC::Socket2 {
+    class CSocket2;
+    struct SEvent;
+}
 
 namespace Actors {
     /*
-        The IPC sockets of one agent's desktop.
+        The IPC sockets of one agent's desktop, built from the same socket classes as the
+        human's.
 
         The directory is {instance path}-agent-NNN and holds .socket.sock and .socket2.sock,
-        the same layout as the human instance. Stock hyprctl works with
+        the same layout as the human instance, so stock hyprctl works with
         HYPRLAND_INSTANCE_SIGNATURE set to {signature}-agent-NNN.
 
-        Every request only sees and acts on windows the agent controls:
+        Requests see and act on the agent's own desktop only. Positions are relative to the
+        agent's monitor, which starts at 0,0:
 
-         - clients, activewindow (the j/ prefix selects JSON)
+         - monitors, clients, activewindow (the j/ prefix selects JSON)
          - dispatch focuswindow address:0x...
          - dispatch closewindow address:0x...
+         - dispatch movecursor X Y
 
-        socket2 sends openwindow, closewindow, activewindow and activewindowv2.
+        socket2 gets every event whose subject is on the agent's desktop (see
+        IPC::Socket2::SEvent::subject), with the same format as the human's socket2.
     */
     class CAgentIPC {
       public:
@@ -36,49 +43,18 @@ namespace Actors {
         CAgentIPC(const CAgentIPC&)            = delete;
         CAgentIPC& operator=(const CAgentIPC&) = delete;
 
-        void       postEvent(const std::string& event, const std::string& data);
+        void       postEvent(const IPC::Socket2::SEvent& event);
 
       private:
         CAgentIPC(ActorID actor, std::string directory);
 
-        // A hyprctl connection waiting for its request.
-        struct SRequestPeer {
-            CAgentIPC*                     ipc = nullptr;
-            Hyprutils::OS::CFileDescriptor fd;
-            wl_event_source*               source = nullptr;
-        };
+        void                       registerCommands();
 
-        // A socket2 listener.
-        struct SEventPeer {
-            CAgentIPC*                     ipc = nullptr;
-            Hyprutils::OS::CFileDescriptor fd;
-            wl_event_source*               source = nullptr;
-            std::string                    queue;
-        };
+        ActorID                    m_actor = HUMAN_ACTOR_ID;
+        std::string                m_directory;
+        bool                       m_createdDirectory = false;
 
-        std::expected<void, std::string> listen();
-        static int                       onRequestSocket(int fd, uint32_t mask, void* data);
-        static int                       onRequestPeer(int fd, uint32_t mask, void* data);
-        static int                       onEventSocket(int fd, uint32_t mask, void* data);
-        static int                       onEventPeer(int fd, uint32_t mask, void* data);
-
-        void                             handleRequest(SRequestPeer& peer);
-        std::string                      dispatch(const std::string& request) const;
-        bool                             flush(SEventPeer& peer);
-        void                             removeRequestPeer(SRequestPeer* peer);
-        void                             removeEventPeer(SEventPeer* peer);
-
-        ActorID                          m_actor = HUMAN_ACTOR_ID;
-        std::string                      m_directory;
-        std::string                      m_requestPath;
-        std::string                      m_eventPath;
-        bool                             m_createdDirectory = false;
-
-        Hyprutils::OS::CFileDescriptor   m_requestSocket;
-        Hyprutils::OS::CFileDescriptor   m_eventSocket;
-        wl_event_source*                 m_requestSource = nullptr;
-        wl_event_source*                 m_eventSource   = nullptr;
-        std::vector<UP<SRequestPeer>>    m_requestPeers;
-        std::vector<UP<SEventPeer>>      m_eventPeers;
+        UP<IPC::Socket1::CSocket1> m_requests;
+        UP<IPC::Socket2::CSocket2> m_events;
     };
 }

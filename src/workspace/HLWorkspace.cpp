@@ -100,8 +100,8 @@ void Workspace::CHLWorkspace::init(PHLWORKSPACE self) {
             Config::Supplementary::executor()->spawnWithRules(*cmd, self);
 
     LOG(Log::DEBUG, "Creating workspace {}", addressableName());
-    IPC::Socket2::sock()->postEvent({.event = "createworkspace", .data = addressableName()});
-    IPC::Socket2::sock()->postEvent({.event = "createworkspacev2", .data = std::format("{},{}", addressableName(), displayName())});
+    IPC::Socket2::sock()->postEvent({.event = "createworkspace", .data = addressableName(), .subject = m_self.lock()});
+    IPC::Socket2::sock()->postEvent({.event = "createworkspacev2", .data = std::format("{},{}", addressableName(), displayName()), .subject = m_self.lock()});
     Event::bus()->m_events.workspace.createdEarly.emit(self);
 }
 
@@ -123,8 +123,8 @@ Workspace::CHLWorkspace::~CHLWorkspace() {
     State::Workspace::workspaceDestroyed({id(), addressableName(), type()});
 
     if (IPC::Socket2::sock()) {
-        IPC::Socket2::sock()->postEvent({.event = "destroyworkspace", .data = addressableName()});
-        IPC::Socket2::sock()->postEvent({.event = "destroyworkspacev2", .data = std::format("{},{}", addressableName(), displayName())});
+        IPC::Socket2::sock()->postEvent({.event = "destroyworkspace", .data = addressableName(), .subject = m_actor});
+        IPC::Socket2::sock()->postEvent({.event = "destroyworkspacev2", .data = std::format("{},{}", addressableName(), displayName()), .subject = m_actor});
     }
 
     Event::bus()->m_events.workspace.removed.emit(m_self);
@@ -295,7 +295,7 @@ void Workspace::CHLWorkspace::rename(const std::string& name) {
 
     m_wasRenamed = true;
 
-    IPC::Socket2::sock()->postEvent({.event = "renameworkspace", .data = std::format("{},{}", addressableName(), displayName())});
+    IPC::Socket2::sock()->postEvent({.event = "renameworkspace", .data = std::format("{},{}", addressableName(), displayName()), .subject = m_self.lock()});
     m_events.renamed.emit();
     Event::bus()->m_events.workspace.renamed.emit(m_self);
 }
@@ -318,7 +318,7 @@ void Workspace::CHLWorkspace::changeID(Workspace::SWorkspaceNumberedID id) {
     State::Workspace::workspaceIdentityChanged(OLD_IDENTITY, {m_id, addressableName(), type()});
     Desktop::History::workspaceTracker()->workspaceIdentityChanged(m_self.lock());
 
-    IPC::Socket2::sock()->postEvent({.event = "changeworkspaceid", .data = std::format("{},{}", OLD_ID, id.value)});
+    IPC::Socket2::sock()->postEvent({.event = "changeworkspaceid", .data = std::format("{},{}", OLD_ID, id.value), .subject = m_self.lock()});
     m_events.idChanged.emit();
 }
 

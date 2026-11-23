@@ -13,14 +13,12 @@
 #include "../helpers/signal/Signal.hpp"
 
 struct wl_client;
-struct wl_global;
-class IKeyboard;
-class IPointer;
-class IDataSource;
-class CWLSurfaceResource;
 class CWLOutputResource;
 class CWLOutputProtocol;
-class CXDGPopupResource;
+
+namespace IPC::Socket2 {
+    struct SEvent;
+}
 
 namespace Actors {
     class CAgentSeat;
@@ -39,7 +37,8 @@ namespace Actors {
         windows together on the agent's borrow workspace (A1 for agent-001); after that they move
         like any human window, and new ones open where the human is. The client still belongs to
         the agent (its owner does not change), so it still cannot see human outputs. It gets
-        private proxy wl_output globals for the human monitors instead.
+        private proxy wl_output globals for the human monitors instead, whose audience is that
+        one client.
     */
     class CAgentManager {
       public:
@@ -57,36 +56,18 @@ namespace Actors {
         PHLMONITOR                       monitorFor(ActorID actor) const;
         PHLWORKSPACE                     workspaceFor(ActorID actor) const;
 
-        void                             addVirtualKeyboard(ActorID actor, SP<IKeyboard> keyboard);
-        void                             addVirtualPointer(ActorID actor, SP<IPointer> pointer);
-        SP<IKeyboard>                    keyboardFor(ActorID actor) const;
-        SP<CWLSurfaceResource>           keyboardFocus(ActorID actor) const;
-        SP<CWLSurfaceResource>           pointerFocus(ActorID actor) const;
-
-        void                             focusWindow(ActorID actor, PHLWINDOW window, SP<CWLSurfaceResource> surface = nullptr);
-        void                             focusSurface(ActorID actor, SP<CWLSurfaceResource> surface);
-        void                             warpPointer(ActorID actor, const Vector2D& monitorLocal);
-        PHLWINDOW                        focusedWindow(ActorID actor) const;
-        bool                             isWindowActive(const PHLWINDOW& window) const;
-
-        void                             setSelection(ActorID actor, SP<IDataSource> source, bool primary);
-        void                             addPopupGrab(ActorID actor, SP<CXDGPopupResource> popup);
-
         std::expected<void, std::string> borrow(PHLWINDOW window);
         std::expected<void, std::string> returnWindow(PHLWINDOW window);
         bool                             isBorrowed(const wl_client* client) const;
 
         // The human workspace that holds the windows borrowed from an agent, for example A1.
         // With create, a missing one is made on the human's focused monitor.
-        PHLWORKSPACE borrowWorkspace(ActorID agent, bool create);
+        PHLWORKSPACE                       borrowWorkspace(ActorID agent, bool create);
 
-        // The client a borrow proxy output global belongs to, or nullopt if the global is not
-        // a borrow proxy.
-        std::optional<const wl_client*>    proxyOutputClient(const wl_global* global) const;
         std::vector<SP<CWLOutputResource>> proxyOutputResources(const PHLMONITOR& monitor, wl_client* client) const;
 
-        // Posts an event to the agent's socket2.
-        void postEvent(ActorID actor, const std::string& event, const std::string& data);
+        // Sends an event to the agent's socket2.
+        void postEvent(ActorID actor, const IPC::Socket2::SEvent& event);
 
       private:
         struct SProxyOutput {
@@ -98,13 +79,6 @@ namespace Actors {
             wl_client*                client = nullptr;
             ActorID                   owner  = HUMAN_ACTOR_ID;
             std::vector<SProxyOutput> outputs;
-        };
-
-        // A proxy whose global is gone but whose wl_output resources are still bound. The
-        // global filter still has to know who it belongs to until libwayland forgets it.
-        struct SRetiredProxy {
-            WP<CWLOutputProtocol> output;
-            const wl_client*      client = nullptr;
         };
 
         SBorrow*                                    borrowOf(const wl_client* client);
@@ -120,14 +94,11 @@ namespace Actors {
         std::unordered_map<ActorID, UP<CAgentSeat>> m_seats;
         std::unordered_map<ActorID, UP<CAgentIPC>>  m_ipc;
         std::vector<SBorrow>                        m_borrows;
-        std::vector<SRetiredProxy>                  m_retiredProxies;
         bool                                        m_started = false;
 
         struct {
             CHyprSignalListener monitorAdded;
             CHyprSignalListener monitorRemoved;
-            CHyprSignalListener windowOpen;
-            CHyprSignalListener windowClose;
             CHyprSignalListener clientDestroyed;
         } m_listeners;
     };

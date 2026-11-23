@@ -1,8 +1,6 @@
 #include "Commands.hpp"
-#include "../../actors/ActorRegistry.hpp"
 #include "../../actors/Actors.hpp"
-#include "../../actors/AgentManager.hpp"
-#include "../../actors/WindowEmbeds.hpp"
+#include "../../embed/WindowEmbeds.hpp"
 #include "../../desktop/view/window/WindowFullscreenPolicy.hpp"
 #include "../../desktop/view/window/WindowGroupMembership.hpp"
 #include "../../desktop/view/window/WindowPresentation.hpp"
@@ -456,12 +454,10 @@ std::string CCommandFormatter::getWindowData(PHLWINDOW w, eHyprCtlOutputFormat f
     const bool VISIBLE           = w->mapped() && w->acceptsInput() && w->alphaNonZero();
     const auto WORKSPACE_ADDRESS = w->workspaceAddress();
     const auto OWNER_ID          = w->owner();
-    const auto OWNER_ACTOR       = g_pActorRegistry ? g_pActorRegistry->actor(OWNER_ID) : nullptr;
-    const auto OWNER_NAME        = OWNER_ACTOR ? OWNER_ACTOR->name : std::string{"unknown"};
+    const auto OWNER_NAME        = Actors::nameOf(OWNER_ID);
     // The controller differs from the owner while the human borrows an agent window.
-    const auto CONTROLLER_ID    = Actors::controllerOf(w);
-    const auto CONTROLLER_ACTOR = g_pActorRegistry ? g_pActorRegistry->actor(CONTROLLER_ID) : nullptr;
-    const auto CONTROLLER_NAME  = CONTROLLER_ACTOR ? CONTROLLER_ACTOR->name : std::string{"unknown"};
+    const auto CONTROLLER_ID   = Actors::controllerOf(w);
+    const auto CONTROLLER_NAME = Actors::nameOf(CONTROLLER_ID);
 
     if (format == eHyprCtlOutputFormat::FORMAT_JSON) {
         return std::format(
@@ -1861,7 +1857,7 @@ static std::string dispatchOutput(eHyprCtlOutputFormat format, std::string reque
     // AGENT-NNN outputs are the agents' desktops. Only the agent manager creates them, and
     // they live as long as the compositor.
     const auto OUTPUT_NAME = MODE == "create" || MODE == "add" ? vars[3] : vars[2];
-    if (g_pActorRegistry && g_pActorRegistry->isReservedOutputName(OUTPUT_NAME))
+    if (Actors::isReservedOutputName(OUTPUT_NAME))
         return "That output name is reserved for agents.";
 
     if (!vars[3].empty()) {
@@ -2107,99 +2103,9 @@ static SCommand legacyCommand(std::string name, eCommandMatch match, F handler) 
     };
 }
 
-static std::string actorsRequest(eHyprCtlOutputFormat format, std::string request) {
-    const auto& registry = g_pActorRegistry;
-    if (!registry)
-        return format == eHyprCtlOutputFormat::FORMAT_JSON ? "[]" : "actors are unavailable";
-
-    std::string result;
-    if (format == eHyprCtlOutputFormat::FORMAT_JSON) {
-        result += "[";
-        for (const auto& actor : registry->actors()) {
-            result += std::format(
-                R"#(
-{{
-    "id": {},
-    "kind": "{}",
-    "name": "{}",
-    "waylandSocket": "{}",
-    "clients": {}
-}},)#",
-                actor.id, Actors::actorKindToString(actor.kind), escapeJSONStrings(actor.name), escapeJSONStrings(actor.waylandSocket), registry->clientCount(actor.id));
-        }
-        trimTrailingComma(result);
-        result += "]";
-        return result;
-    }
-
-    for (const auto& actor : registry->actors()) {
-        result += std::format("Actor {} ({}):\n\tkind: {}\n\twaylandSocket: {}\n\tclients: {}\n\n", actor.name, actor.id, Actors::actorKindToString(actor.kind),
-                              actor.waylandSocket, registry->clientCount(actor.id));
-    }
-
-    return result;
-}
-
-// actor borrow <window>, actor return <window>,
-// actor embed <window> <host> <x> <y> <width> <height> <sourceX> <sourceY>, and
-// actor unembed <window>. Windows are any window selector, for example address:0x1234. Embed
-// shows window inside host, in the box x, y, width, height of the host, with the point sourceX,
-// sourceY of window at the box's top left corner; all of it in logical pixels.
-static std::string actorRequest(eHyprCtlOutputFormat format, std::string request) {
-    CVarList   vars(request, 0, ' ');
-
-    const auto RESULT = [format](const std::expected<void, std::string>& result) -> std::string {
-        if (format == eHyprCtlOutputFormat::FORMAT_JSON)
-            return result ? R"({"ok": true})" : std::format(R"({{"ok": false, "error": "{}"}})", escapeJSONStrings(result.error()));
-        return result ? "ok" : result.error();
-    };
-
-    const auto WINDOW = [&vars](size_t i) { return Desktop::viewState()->query().selector(vars[i]).runWindow(); };
-
-    if (vars.size() >= 2 && vars[1] == "embed") {
-        if (vars.size() != 10)
-            return RESULT(std::unexpected("usage: actor embed <window> <host> <x> <y> <width> <height> <sourceX> <sourceY>"));
-
-        std::array<double, 6> numbers = {};
-        for (size_t i = 0; i < numbers.size(); ++i) {
-            try {
-                numbers[i] = std::stod(vars[i + 4]);
-            } catch (...) { return RESULT(std::unexpected(std::format("not a number: {}", vars[i + 4]))); }
-        }
-
-        if (!g_pWindowEmbeds)
-            return RESULT(std::unexpected("embedding is unavailable"));
-
-        return RESULT(g_pWindowEmbeds->embed(WINDOW(2), WINDOW(3), CBox{numbers[0], numbers[1], numbers[2], numbers[3]}, Vector2D{numbers[4], numbers[5]}));
-    }
-
-    if (vars.size() == 3 && vars[1] == "unembed") {
-        const auto PWINDOW = WINDOW(2);
-        if (!PWINDOW)
-            return RESULT(std::unexpected("window not found"));
-
-        if (!g_pWindowEmbeds)
-            return RESULT(std::unexpected("embedding is unavailable"));
-
-        return RESULT(g_pWindowEmbeds->unembed(PWINDOW));
-    }
-
-    if (vars.size() < 3 || (vars[1] != "borrow" && vars[1] != "return"))
-        return RESULT(std::unexpected("usage: actor borrow|return|unembed <window>, or actor embed <window> <host> <x> <y> <width> <height> <sourceX> <sourceY>"));
-
-    if (!g_pAgentManager)
-        return RESULT(std::unexpected("there are no agents"));
-
-    const auto PWINDOW = WINDOW(2);
-    if (!PWINDOW)
-        return RESULT(std::unexpected("window not found"));
-
-    return RESULT(vars[1] == "borrow" ? g_pAgentManager->borrow(PWINDOW) : g_pAgentManager->returnWindow(PWINDOW));
-}
-
 void IPC::Socket1::registerBuiltinCommands(CSocket1& socket) {
-    socket.registerCommand(legacyCommand("actors", COMMAND_MATCH_EXACT, actorsRequest));
-    socket.registerCommand(legacyCommand("actor", COMMAND_MATCH_PREFIX, actorRequest));
+    Actors::registerCommands(socket);
+    Embed::registerCommands(socket);
     socket.registerCommand(legacyCommand("workspaces", COMMAND_MATCH_EXACT, workspacesRequest));
     socket.registerCommand(legacyCommand("workspacerules", COMMAND_MATCH_EXACT, workspaceRulesRequest));
     socket.registerCommand(legacyCommand("activeworkspace", COMMAND_MATCH_EXACT, activeWorkspaceRequest));

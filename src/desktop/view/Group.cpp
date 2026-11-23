@@ -65,7 +65,7 @@ void CGroup::init() {
 
     updateWindowVisibility();
 
-    IPC::Socket2::sock()->postEvent({.event = "togglegroup", .data = std::format("1,{:x}", rc<uintptr_t>(m_windows.at(0).get()))});
+    IPC::Socket2::sock()->postEvent({.event = "togglegroup", .data = std::format("1,{:x}", rc<uintptr_t>(m_windows.at(0).get())), .subject = m_windows.at(0).lock()});
 }
 
 void CGroup::destroy() {
@@ -81,7 +81,7 @@ void CGroup::destroy() {
     }
 
     if (POWNER)
-        IPC::Socket2::sock()->postEvent({.event = "togglegroup", .data = std::format("0,{:x}", rc<uintptr_t>(POWNER.get()))});
+        IPC::Socket2::sock()->postEvent({.event = "togglegroup", .data = std::format("0,{:x}", rc<uintptr_t>(POWNER.get())), .subject = POWNER});
 }
 
 CGroup::~CGroup() {

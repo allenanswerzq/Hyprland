@@ -1,7 +1,6 @@
 #include "State.hpp"
 
 #include "LifecyclePolicyAdapter.hpp"
-#include "../../actors/ActorRegistry.hpp"
 #include "../../actors/Actors.hpp"
 #include "../../config/shared/workspace/WorkspaceRuleManager.hpp"
 #include "../../debug/log/Logger.hpp"
@@ -27,15 +26,6 @@ static PHLMONITOR sameActorMonitor(std::optional<PHLMONITOR> bound, PHLMONITOR r
     }
 
     return *bound;
-}
-
-// Each agent owns the named workspace that matches its actor name, for example "agent-001".
-static bool reservedForAnotherActor(const std::string& address, const PHLMONITOR& monitor) {
-    if (!g_pActorRegistry)
-        return false;
-
-    const auto ACTOR = g_pActorRegistry->actorByName(address);
-    return ACTOR && ACTOR->id != Actors::actorOf(monitor);
 }
 
 UP<CState>& State::Workspace::state() {
@@ -154,7 +144,8 @@ PHLWORKSPACE CState::createNamed(std::string address, PHLMONITOR monitor, std::s
         return nullptr;
     }
 
-    if (reservedForAnotherActor(address, monitor)) {
+    // Each agent owns the named workspace that matches its name, for example "agent-001".
+    if (Actors::isReservedWorkspaceName(address, Actors::actorOf(monitor))) {
         LOG(Log::ERR, "Refusing to create named workspace {}: the name is reserved for an actor", address);
         return nullptr;
     }

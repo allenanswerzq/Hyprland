@@ -2,7 +2,6 @@
 #include "Compositor.hpp"
 #include "DataDevice.hpp"
 #include "../../actors/Actors.hpp"
-#include "../../actors/AgentManager.hpp"
 #include "../../devices/IKeyboard.hpp"
 #include "../../devices/IHID.hpp"
 #include "../../managers/SeatManager.hpp"
@@ -13,35 +12,6 @@
 #include <fcntl.h>
 
 constexpr const float WL_FIXED_EPSILON = 1.F / 256.F;
-
-// The keyboard whose keymap a client should use: the agent's active virtual keyboard for
-// agent-controlled clients, the human's active keyboard otherwise.
-static SP<IKeyboard> keyboardForClient(const wl_client* client) {
-    if (!Actors::humanControls(client) && g_pAgentManager) {
-        if (const auto CONTROLLER = Actors::controllerOf(client); CONTROLLER) {
-            if (auto keyboard = g_pAgentManager->keyboardFor(*CONTROLLER))
-                return keyboard;
-        }
-    }
-
-    return g_pSeatManager->m_keyboard.lock();
-}
-
-static SP<CWLSurfaceResource> keyboardFocusForClient(const wl_client* client) {
-    if (Actors::humanControls(client))
-        return g_pSeatManager->m_state.keyboardFocus.lock();
-
-    const auto CONTROLLER = Actors::controllerOf(client);
-    return CONTROLLER && g_pAgentManager ? g_pAgentManager->keyboardFocus(*CONTROLLER) : nullptr;
-}
-
-static SP<CWLSurfaceResource> pointerFocusForClient(const wl_client* client) {
-    if (Actors::humanControls(client))
-        return g_pSeatManager->m_state.pointerFocus.lock();
-
-    const auto CONTROLLER = Actors::controllerOf(client);
-    return CONTROLLER && g_pAgentManager ? g_pAgentManager->pointerFocus(*CONTROLLER) : nullptr;
-}
 
 CWLTouchResource::CWLTouchResource(SP<CWlTouch> resource_, SP<CWLSeatResource> owner_) : m_owner(owner_), m_resource(resource_) {
     if UNLIKELY (!good())
@@ -172,7 +142,7 @@ CWLPointerResource::CWLPointerResource(SP<CWlPointer> resource_, SP<CWLSeatResou
         g_pSeatManager->onSetCursor(m_owner.lock(), serial, surfResource, {hotX, hotY});
     });
 
-    auto surface = pointerFocusForClient(m_resource->client());
+    auto surface = Actors::pointerFocusFor(m_resource->client());
 
     if (surface && surface->client() == m_resource->client())
         sendEnter(surface, {-1, -1});
@@ -379,7 +349,7 @@ CWLKeyboardResource::CWLKeyboardResource(SP<CWlKeyboard> resource_, SP<CWLSeatRe
     m_resource->setRelease([this](CWlKeyboard* r) { PROTO::seat->destroyResource(this); });
     m_resource->setOnDestroy([this](CWlKeyboard* r) { PROTO::seat->destroyResource(this); });
 
-    const auto KEYBOARD = keyboardForClient(m_resource->client());
+    const auto KEYBOARD = Actors::keyboardFor(m_resource->client());
     if (!KEYBOARD) {
         LOG(Log::ERR, "No keyboard on bound wl_keyboard??");
         return;
@@ -388,7 +358,7 @@ CWLKeyboardResource::CWLKeyboardResource(SP<CWlKeyboard> resource_, SP<CWLSeatRe
     sendKeymap(KEYBOARD);
     repeatInfo(KEYBOARD->m_repeatRate, KEYBOARD->m_repeatDelay);
 
-    if (const auto FOCUS = keyboardFocusForClient(m_resource->client()); FOCUS && FOCUS->client() == m_resource->client()) {
+    if (const auto FOCUS = Actors::keyboardFocusFor(m_resource->client()); FOCUS && FOCUS->client() == m_resource->client()) {
         wl_array keys;
         wl_array_init(&keys);
 
@@ -678,7 +648,7 @@ std::vector<SP<CWLSeatResource>> CWLSeatProtocol::seatResourcesForClient(const w
 
 void CWLSeatProtocol::refreshClient(const wl_client* client) {
     const auto CAPS     = capsForClient(client);
-    const auto KEYBOARD = keyboardForClient(client);
+    const auto KEYBOARD = Actors::keyboardFor(client);
 
     for (const auto& seat : seatResourcesForClient(client)) {
         seat->sendCapabilities(CAPS);

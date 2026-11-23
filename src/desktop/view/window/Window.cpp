@@ -59,8 +59,7 @@
 #include "../../../render/scene/SceneSelection.hpp"
 #include "../../../ipc/s2/S2.hpp"
 #include "../../../actors/Actors.hpp"
-#include "../../../actors/WindowEmbeds.hpp"
-#include "../../../actors/AgentManager.hpp"
+#include "../../../embed/WindowEmbeds.hpp"
 #include "../../../managers/input/InputManager.hpp"
 #include "../../../pointer/PointerController.hpp"
 #include "../../../managers/fullscreen/FullscreenController.hpp"
@@ -420,9 +419,9 @@ void CWindow::updateSurfaceScaleTransformDetails(bool force) {
         m_wlSurface->resource()->breadthfirst([PNEWMONITOR](SP<CWLSurfaceResource> s, const Vector2D& offset, void* d) { s->enter(PNEWMONITOR->m_self.lock()); }, nullptr);
     }
 
-    // A window shown inside another one (actors/WindowEmbeds) renders for its host's monitor.
+    // A window shown inside another one (src/embed) renders for its host's monitor.
     auto       PMONITOR = m_monitor.lock();
-    const auto HOST     = g_pWindowEmbeds ? g_pWindowEmbeds->hostOf(m_self.lock()) : nullptr;
+    const auto HOST     = Embed::hostOf(m_self.lock());
     if (HOST && HOST->m_monitor)
         PMONITOR = HOST->m_monitor.lock();
 
@@ -438,11 +437,9 @@ void CWindow::updateSurfaceScaleTransformDetails(bool force) {
         },
         nullptr);
 
-    if (g_pWindowEmbeds) {
-        for (const auto& embed : g_pWindowEmbeds->embeddedIn(m_self.lock())) {
-            if (const auto EMBEDDED = embed.window.lock())
-                EMBEDDED->updateSurfaceScaleTransformDetails(true);
-        }
+    for (const auto& embed : Embed::embeddedIn(m_self.lock())) {
+        if (const auto EMBEDDED = embed.window.lock())
+            EMBEDDED->updateSurfaceScaleTransformDetails(true);
     }
 }
 
@@ -498,9 +495,9 @@ void CWindow::moveToWorkspace(PHLWORKSPACE pWorkspace) {
     Desktop::globalWindowController()->updateAllWindowsDecorations();
 
     if (valid(pWorkspace)) {
-        IPC::Socket2::sock()->postEvent({.event = "movewindow", .data = std::format("{:x},{}", rc<uintptr_t>(this), pWorkspace->addressableName())});
+        IPC::Socket2::sock()->postEvent({.event = "movewindow", .data = std::format("{:x},{}", rc<uintptr_t>(this), pWorkspace->addressableName()), .subject = m_self.lock()});
         IPC::Socket2::sock()->postEvent(
-            {.event = "movewindowv2", .data = std::format("{:x},{},{}", rc<uintptr_t>(this), pWorkspace->addressableName(), pWorkspace->displayName())});
+            {.event = "movewindowv2", .data = std::format("{:x},{},{}", rc<uintptr_t>(this), pWorkspace->addressableName(), pWorkspace->displayName()), .subject = m_self.lock()});
         Event::bus()->m_events.window.moveToWorkspace.emit(m_self.lock(), pWorkspace);
     }
 
@@ -826,27 +823,19 @@ std::unordered_map<std::string, std::string> CWindow::getEnv() {
 }
 
 void CWindow::markUrgent() {
-    const auto CONTROLLER = Actors::controllerOf(m_self.lock());
-    const bool AGENT      = Actors::isAgent(CONTROLLER);
-
-    if (AGENT ? g_pAgentManager && g_pAgentManager->focusedWindow(CONTROLLER) == m_self.lock() : Desktop::focusState()->window() == m_self)
+    if (Actors::isFocused(m_self.lock()))
         return;
 
     m_hints |= WINDOW_HINT_URGENT;
 
-    // Agent windows report on the agent's own socket2.
-    if (AGENT) {
-        if (g_pAgentManager)
-            g_pAgentManager->postEvent(CONTROLLER, "urgent", std::format("{:x}", rc<uintptr_t>(this)));
-    } else
-        IPC::Socket2::sock()->postEvent({.event = "urgent", .data = std::format("{:x}", rc<uintptr_t>(this))});
+    IPC::Socket2::sock()->postEvent({.event = "urgent", .data = std::format("{:x}", rc<uintptr_t>(this)), .subject = m_self.lock()});
     Event::bus()->m_events.window.urgent.emit(m_self.lock());
 }
 
 void CWindow::activate(bool force) {
     const bool HUMAN = Actors::humanControls(m_self.lock());
 
-    if (HUMAN ? Desktop::focusState()->window() == m_self : g_pAgentManager && g_pAgentManager->focusedWindow(Actors::controllerOf(m_self.lock())) == m_self.lock())
+    if (Actors::isFocused(m_self.lock()))
         return;
 
     static auto PFOCUSONACTIVATE = CConfigValue<Config::INTEGER>("misc:focus_on_activate");
@@ -940,8 +929,8 @@ void CWindow::onUpdateMeta(const SBackendMetadata& metadata) {
     bool        doUpdate = false;
 
     if (m_metadata->updateTitle(NEWTITLE)) {
-        IPC::Socket2::sock()->postEvent({.event = "windowtitle", .data = std::format("{:x}", rc<uintptr_t>(this))});
-        IPC::Socket2::sock()->postEvent({.event = "windowtitlev2", .data = std::format("{:x},{}", rc<uintptr_t>(this), m_metadata->title())});
+        IPC::Socket2::sock()->postEvent({.event = "windowtitle", .data = std::format("{:x}", rc<uintptr_t>(this)), .subject = m_self.lock()});
+        IPC::Socket2::sock()->postEvent({.event = "windowtitlev2", .data = std::format("{:x},{}", rc<uintptr_t>(this), m_metadata->title()), .subject = m_self.lock()});
         Event::bus()->m_events.window.title.emit(m_self.lock());
 
         if (m_self == Desktop::focusState()->window()) { // if it's the active, let's post an event to update others
@@ -1202,7 +1191,7 @@ void CWindow::mapWindow() {
 
     PHLMONITOR PMONITOR;
     if (AGENT)
-        PMONITOR = g_pAgentManager ? g_pAgentManager->monitorFor(CONTROLLER) : nullptr;
+        PMONITOR = Actors::monitorOf(CONTROLLER);
     else {
         PMONITOR = Desktop::focusState()->monitor();
         if (!PMONITOR) {
@@ -1491,9 +1480,9 @@ void CWindow::mapWindow() {
     m_swallowing->reserveCandidate();
 
     // emit the IPC event before the layout might focus the window to avoid a focus event first
-    // Agent windows are reported on the agent's own socket2 by the agent manager.
-    if (!AGENT)
-        IPC::Socket2::sock()->postEvent({"openwindow", std::format("{:x},{},{},{}", m_self.lock(), PWORKSPACE->addressableName(), m_metadata->appID(), m_metadata->title())});
+    IPC::Socket2::sock()->postEvent({.event   = "openwindow",
+                                     .data    = std::format("{:x},{},{},{}", m_self.lock(), PWORKSPACE->addressableName(), m_metadata->appID(), m_metadata->title()),
+                                     .subject = m_self.lock()});
     Event::bus()->m_events.window.openEarly.emit(m_self.lock());
 
     if (m_swallowing->activate()) {
@@ -1703,7 +1692,7 @@ void CWindow::unmapWindow() {
     // An agent window was focused if its agent seat focused it. The human focus never points at it.
     const auto CONTROLLER  = Actors::controllerOf(m_self.lock());
     const bool AGENT       = Actors::isAgent(CONTROLLER);
-    const bool WAS_FOCUSED = AGENT ? g_pAgentManager && g_pAgentManager->focusedWindow(CONTROLLER) == m_self.lock() : m_self.lock() == Desktop::focusState()->window();
+    const bool WAS_FOCUSED = Actors::isFocused(m_self.lock());
     if (!wlSurface()->exists() || !m_isMapped) {
         LOG(Log::WARN, "{} unmapped without being mapped??", m_self.lock());
         return;
@@ -1713,9 +1702,7 @@ void CWindow::unmapWindow() {
 
     m_stateTracker->stop();
     m_events.unmap.emit();
-    // Agent windows are reported on the agent's own socket2 by the agent manager.
-    if (!AGENT)
-        IPC::Socket2::sock()->postEvent({"closewindow", std::format("{:x}", m_self.lock())});
+    IPC::Socket2::sock()->postEvent({.event = "closewindow", .data = std::format("{:x}", m_self.lock()), .subject = m_self.lock()});
     Event::bus()->m_events.window.close.emit(m_self.lock());
 
     if (m_target->floating() && !m_backend->isX11() && m_ruleApplicator->persistentSize().valueOrDefault()) {
@@ -1794,8 +1781,7 @@ void CWindow::unmapWindow() {
 
         LOG(Log::DEBUG, "On closed agent window, new focused candidate is {}", candidate);
 
-        if (g_pAgentManager)
-            g_pAgentManager->focusWindow(CONTROLLER, candidate);
+        Actors::focusAgentWindow(CONTROLLER, candidate);
 
         if (candidate && (*PEXITRETAINSFS == 1 || (candidate != nextInGroup && *PEXITRETAINSFS == 3) || (candidate == nextInGroup && *PEXITRETAINSFS == 2)) && IS_CURRENT_WINDOW_FS)
             Fullscreen::controller()->setFullscreenMode(candidate, CURRENT_WINDOW_FS_MODES.internal, std::nullopt, CURRENT_FS_LAYOUT_HANDLED);
@@ -1904,12 +1890,10 @@ void CWindow::commitWindow(bool initialCommit) {
             g_pHyprRenderer->damageWindow(m_self.lock());
     }
 
-    // A window shown inside another one (actors/WindowEmbeds) is seen through its host, though its own
+    // A window shown inside another one (src/embed) is seen through its host, though its own
     // workspace is hidden. Its commit redraws the host's box, which also covers its subsurfaces, wherever they moved.
-    if (!m_workspace->visible() && g_pWindowEmbeds && g_pWindowEmbeds->hostOf(m_self.lock())) {
-        g_pWindowEmbeds->damage(m_self.lock());
+    if (!m_workspace->visible() && Embed::damageThroughHost(m_self.lock()))
         return;
-    }
 
     if (!m_workspace->visible())
         return;

@@ -259,7 +259,7 @@ class CDMABUFFeedbackTest : public CDMABUFFormatTableTest {
     void makeWindow() {
         m_surface           = makeShared<CWLSurfaceResource>(makeShared<CWlSurface>(m_client, 6, m_nextID++));
         m_surface->m_self   = m_surface;
-        m_window            = Desktop::View::CWindow::create(makeUnique<Desktop::View::CWaylandBackend>(nullptr), Actors::HUMAN_ACTOR_ID);
+        m_window            = Desktop::View::CWindow::create(makeUnique<Desktop::View::CWaylandBackend>(nullptr));
         m_window->m_monitor = m_monitor;
         m_window->wlSurface()->assign(m_surface, m_window);
     }

@@ -17,6 +17,7 @@
 #include "../desktop/view/window/WindowGroupMembership.hpp"
 #include "../desktop/view/window/WindowPresentation.hpp"
 #include "../event/EventBus.hpp"
+#include "../ipc/s2/S2.hpp"
 #include "../managers/SeatManager.hpp"
 #include "../managers/input/InputManager.hpp"
 #include "../output/Monitor.hpp"
@@ -117,22 +118,6 @@ CAgentManager::CAgentManager() {
 
     m_listeners.monitorAdded   = Event::bus()->m_events.monitor.added.listen([this](const PHLMONITOR& monitor) { onMonitorAdded(monitor); });
     m_listeners.monitorRemoved = Event::bus()->m_events.monitor.removed.listen([this](const PHLMONITOR& monitor) { onMonitorRemoved(monitor); });
-
-    m_listeners.windowOpen = Event::bus()->m_events.window.open.listen([this](const PHLWINDOW& window) {
-        const auto ACTOR = controllerOf(window);
-        if (!isAgent(ACTOR))
-            return;
-
-        postEvent(ACTOR, "openwindow",
-                  std::format("{:x},{},{},{}", rc<uintptr_t>(window.get()), window->m_workspace ? window->m_workspace->addressableName() : std::string{},
-                              window->metadata().appID(), window->metadata().title()));
-    });
-
-    m_listeners.windowClose = Event::bus()->m_events.window.close.listen([this](const PHLWINDOW& window) {
-        const auto ACTOR = controllerOf(window);
-        if (isAgent(ACTOR))
-            postEvent(ACTOR, "closewindow", std::format("{:x}", rc<uintptr_t>(window.get())));
-    });
 }
 
 CAgentManager::~CAgentManager() {
@@ -198,74 +183,6 @@ PHLMONITOR CAgentManager::monitorFor(ActorID actor) const {
 PHLWORKSPACE CAgentManager::workspaceFor(ActorID actor) const {
     const auto MONITOR = monitorFor(actor);
     return MONITOR ? MONITOR->m_activeWorkspace : nullptr;
-}
-
-void CAgentManager::addVirtualKeyboard(ActorID actor, SP<IKeyboard> keyboard) {
-    if (const auto SEAT = seat(actor); SEAT)
-        SEAT->addKeyboard(keyboard);
-    else
-        LOG(Log::ERR, "Virtual keyboard for actor {} without an agent seat", actor);
-}
-
-void CAgentManager::addVirtualPointer(ActorID actor, SP<IPointer> pointer) {
-    if (const auto SEAT = seat(actor); SEAT)
-        SEAT->addPointer(pointer);
-    else
-        LOG(Log::ERR, "Virtual pointer for actor {} without an agent seat", actor);
-}
-
-SP<IKeyboard> CAgentManager::keyboardFor(ActorID actor) const {
-    const auto SEAT = seat(actor);
-    return SEAT ? SEAT->keyboard() : nullptr;
-}
-
-SP<CWLSurfaceResource> CAgentManager::keyboardFocus(ActorID actor) const {
-    const auto SEAT = seat(actor);
-    return SEAT ? SEAT->keyboardFocus() : nullptr;
-}
-
-SP<CWLSurfaceResource> CAgentManager::pointerFocus(ActorID actor) const {
-    const auto SEAT = seat(actor);
-    return SEAT ? SEAT->pointerFocus() : nullptr;
-}
-
-void CAgentManager::focusWindow(ActorID actor, PHLWINDOW window, SP<CWLSurfaceResource> surface) {
-    if (const auto SEAT = seat(actor); SEAT)
-        SEAT->focusWindow(window, surface);
-}
-
-void CAgentManager::focusSurface(ActorID actor, SP<CWLSurfaceResource> surface) {
-    if (const auto SEAT = seat(actor); SEAT)
-        SEAT->focusSurface(surface);
-}
-
-void CAgentManager::warpPointer(ActorID actor, const Vector2D& local) {
-    if (const auto SEAT = seat(actor); SEAT)
-        SEAT->warpPointer(local);
-}
-
-PHLWINDOW CAgentManager::focusedWindow(ActorID actor) const {
-    const auto SEAT = seat(actor);
-    return SEAT ? SEAT->focusedWindow() : nullptr;
-}
-
-bool CAgentManager::isWindowActive(const PHLWINDOW& window) const {
-    const auto SEAT = seat(controllerOf(window));
-    return SEAT && SEAT->isWindowActive(window);
-}
-
-void CAgentManager::setSelection(ActorID actor, SP<IDataSource> source, bool primary) {
-    if (const auto SEAT = seat(actor); SEAT)
-        SEAT->setSelection(source, primary);
-    else if (source)
-        source->cancelled();
-}
-
-void CAgentManager::addPopupGrab(ActorID actor, SP<CXDGPopupResource> popup) {
-    if (const auto SEAT = seat(actor); SEAT)
-        SEAT->addPopupGrab(popup);
-    else if (popup)
-        popup->done();
 }
 
 CAgentManager::SBorrow* CAgentManager::borrowOf(const wl_client* client) {
@@ -360,7 +277,7 @@ std::expected<void, std::string> CAgentManager::borrow(PHLWINDOW window) {
 
     for (const auto& w : WINDOWS) {
         setBorrowTags(w, *OWNER, true);
-        postEvent(*OWNER, "borrowwindow", std::format("{:x}", rc<uintptr_t>(w.get())));
+        IPC::Socket2::sock()->postEvent({.event = "borrowwindow", .data = std::format("{:x}", rc<uintptr_t>(w.get())), .subject = *OWNER});
     }
 
     // The human goes to the borrow workspace, on whichever monitor it is.
@@ -412,7 +329,7 @@ std::expected<void, std::string> CAgentManager::returnWindow(PHLWINDOW window) {
 
     for (const auto& w : WINDOWS) {
         setBorrowTags(w, OWNER, false);
-        postEvent(OWNER, "returnwindow", std::format("{:x}", rc<uintptr_t>(w.get())));
+        IPC::Socket2::sock()->postEvent({.event = "returnwindow", .data = std::format("{:x}", rc<uintptr_t>(w.get())), .subject = OWNER});
     }
 
     leaveEmptyWorkspace(BORROW_WORKSPACE);
@@ -429,17 +346,15 @@ void CAgentManager::addProxyOutput(SBorrow& borrow, const PHLMONITOR& monitor) {
     if (std::ranges::any_of(borrow.outputs, [&monitor](const auto& proxy) { return proxy.monitor == monitor; }))
         return;
 
-    CPendingOutputGlobal scope(borrow.client);
-
-    auto                 output = makeShared<CWLOutputProtocol>(&wl_output_interface, 4, std::format("WLOutput proxy ({})", monitor->m_name), monitor);
-    output->m_self              = output;
+    // Only the borrowed client sees the proxy.
+    auto output    = makeShared<CWLOutputProtocol>(&wl_output_interface, 4, std::format("WLOutput proxy ({})", monitor->m_name), monitor,
+                                                   [client = borrow.client](const wl_client* other) { return other == client; });
+    output->m_self = output;
 
     borrow.outputs.emplace_back(SProxyOutput{.output = output, .monitor = monitor});
 }
 
 void CAgentManager::removeProxyOutputs(SBorrow& borrow, const PHLMONITOR& onlyMonitor) {
-    std::erase_if(m_retiredProxies, [](const auto& retired) { return !retired.output; });
-
     for (auto& proxy : borrow.outputs) {
         const auto MONITOR = proxy.monitor.lock();
         if (onlyMonitor && MONITOR != onlyMonitor)
@@ -453,35 +368,17 @@ void CAgentManager::removeProxyOutputs(SBorrow& borrow, const PHLMONITOR& onlyMo
             });
         }
 
-        // Removing the global sends global_remove, which asks the filter, which still finds
-        // the proxy in this borrow.
+        // The global keeps its audience, so global_remove reaches only the borrowed client. A
+        // retired output lives on until the client released it.
         proxy.output->remove();
 
-        if (proxy.output->hasBoundResources()) {
+        if (proxy.output->hasBoundResources())
             PROTO::defunctOutputs.emplace_back(proxy.output);
-            m_retiredProxies.emplace_back(SRetiredProxy{.output = proxy.output, .client = borrow.client});
-        }
 
         proxy.output.reset();
     }
 
     std::erase_if(borrow.outputs, [](const auto& proxy) { return !proxy.output; });
-}
-
-std::optional<const wl_client*> CAgentManager::proxyOutputClient(const wl_global* global) const {
-    for (const auto& borrow : m_borrows) {
-        for (const auto& proxy : borrow.outputs) {
-            if (proxy.output && proxy.output->getGlobal() == global)
-                return borrow.client;
-        }
-    }
-
-    for (const auto& retired : m_retiredProxies) {
-        if (const auto OUTPUT = retired.output.lock(); OUTPUT && OUTPUT->getGlobal() == global)
-            return retired.client;
-    }
-
-    return std::nullopt;
 }
 
 std::vector<SP<CWLOutputResource>> CAgentManager::proxyOutputResources(const PHLMONITOR& monitor, wl_client* client) const {
@@ -531,10 +428,9 @@ void CAgentManager::onClientDestroyed(wl_client* client) {
         removeProxyOutputs(*BORROW);
 
     std::erase_if(m_borrows, [client](const auto& borrow) { return borrow.client == client; });
-    std::erase_if(m_retiredProxies, [client](const auto& retired) { return retired.client == client || !retired.output; });
 }
 
-void CAgentManager::postEvent(ActorID actor, const std::string& event, const std::string& data) {
+void CAgentManager::postEvent(ActorID actor, const IPC::Socket2::SEvent& event) {
     if (const auto IT = m_ipc.find(actor); IT != m_ipc.end())
-        IT->second->postEvent(event, data);
+        IT->second->postEvent(event);
 }

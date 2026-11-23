@@ -15,29 +15,10 @@
 #include "../../event/EventBus.hpp"
 #include "../../workspace/query/Query.hpp"
 #include "../../actors/Actors.hpp"
-#include "../../actors/AgentManager.hpp"
 
 using namespace Desktop;
 
 #define COMMA ,
-
-/*
-    Focus of a window the human does not control belongs to that window's agent seat.
-    Only window lifecycle reasons move it. Reasons that come from human input (keybinds,
-    dispatchers, clicks, follow mouse) never change an agent's focus.
-*/
-static bool agentFocusReasonAllowed(eFocusReason reason) {
-    switch (reason) {
-        case FOCUS_REASON_UNKNOWN:
-        case FOCUS_REASON_NEW_WINDOW:
-        case FOCUS_REASON_UNMAP_WINDOW_TILING:
-        case FOCUS_REASON_UNMAP_WINDOW_FLOATING:
-        case FOCUS_REASON_UNMAP_GROUPED_WINDOW:
-        case FOCUS_REASON_DESKTOP_STATE_CHANGE:
-        case FOCUS_REASON_OTHER: return true;
-        default: return false;
-    }
-}
 
 SP<CFocusState> Desktop::focusState() {
     static SP<CFocusState> state = makeShared<CFocusState>();
@@ -93,10 +74,9 @@ static SFullscreenWorkspaceFocusResult onFullscreenWorkspaceFocusWindow(PHLWINDO
 }
 
 void CFocusState::fullWindowFocus(PHLWINDOW pWindow, eFocusReason reason, SP<CWLSurfaceResource> surface, bool forceFSCycle) {
-    if (pWindow && !Actors::humanControls(pWindow) && !agentFocusReasonAllowed(reason)) {
-        LOG(Log::DEBUG, "Refusing human focus request for {}: the human does not control it", pWindow);
+    // Human input never moves the focus of an agent's window.
+    if (Actors::refuseHumanFocus(pWindow, reason))
         return;
-    }
 
     if (pWindow) {
         if (!pWindow->m_workspace)
@@ -124,16 +104,9 @@ void CFocusState::rawWindowFocus(PHLWINDOW pWindow, eFocusReason reason, SP<CWLS
     static auto PFOLLOWMOUSE        = CConfigValue<Config::INTEGER>("input:follow_mouse");
     static auto PSPECIALFALLTHROUGH = CConfigValue<Config::INTEGER>("input:special_fallthrough");
 
-    if (pWindow && !Actors::humanControls(pWindow)) {
-        if (!agentFocusReasonAllowed(reason)) {
-            LOG(Log::DEBUG, "Refusing human focus request for {}: the human does not control it", pWindow);
-            return;
-        }
-
-        if (g_pAgentManager)
-            g_pAgentManager->focusWindow(Actors::controllerOf(pWindow), pWindow, surface);
+    // A window the human does not control gets focus from its agent's seat.
+    if (Actors::routeWindowFocus(pWindow, reason, surface))
         return;
-    }
 
     if (pWindow == m_focusWindow && surface == m_focusSurface && m_focusSurface)
         return;
@@ -266,11 +239,8 @@ void CFocusState::rawWindowFocus(PHLWINDOW pWindow, eFocusReason reason, SP<CWLS
 
 void CFocusState::rawSurfaceFocus(SP<CWLSurfaceResource> pSurface, PHLWINDOW pWindowOwner) {
     // A surface of an agent client gets keyboard focus from its agent seat.
-    if (pSurface && !Actors::humanControls(pSurface)) {
-        if (const auto CONTROLLER = Actors::controllerOf(pSurface); CONTROLLER && g_pAgentManager)
-            g_pAgentManager->focusSurface(*CONTROLLER, pSurface);
+    if (Actors::routeSurfaceFocus(pSurface))
         return;
-    }
 
     if (g_pSeatManager->m_state.keyboardFocus == pSurface || (pWindowOwner && g_pSeatManager->m_state.keyboardFocus == pWindowOwner->wlSurface()->resource()))
         return; // Don't focus when already focused on this.
@@ -355,8 +325,8 @@ void CFocusState::resetWindowFocus() {
 }
 
 bool CFocusState::isWindowActive(PHLWINDOW pWindow) const {
-    if (pWindow && !Actors::humanControls(pWindow))
-        return g_pAgentManager && g_pAgentManager->isWindowActive(pWindow);
+    if (const auto AGENT_ACTIVE = Actors::agentWindowActive(pWindow); AGENT_ACTIVE)
+        return *AGENT_ACTIVE;
 
     const auto FOCUSWINDOW  = m_focusWindow.lock();
     const auto FOCUSSURFACE = m_focusSurface.lock();

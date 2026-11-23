@@ -24,7 +24,7 @@ CXDGSystemBellManagerResource::CXDGSystemBellManagerResource(UP<CXdgSystemBellV1
         if (info.cancelled)
             return;
 
-        IPC::Socket2::sock()->postEvent({.event = "bell", .data = WINDOW ? std::format("{:x}", rc<uintptr_t>(WINDOW.get())) : ""});
+        IPC::Socket2::sock()->postEvent({.event = "bell", .data = WINDOW ? std::format("{:x}", rc<uintptr_t>(WINDOW.get())) : "", .subject = WINDOW});
         Bell::player()->play();
     });
 }

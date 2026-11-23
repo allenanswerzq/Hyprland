@@ -29,7 +29,6 @@
 #include "../../protocols/core/Compositor.hpp"
 #include "../../protocols/InputCapture.hpp"
 #include "../../actors/Actors.hpp"
-#include "../../actors/AgentManager.hpp"
 #include "../../hotkeys/Manager.hpp"
 
 #include "../../devices/Mouse.hpp"
@@ -961,7 +960,7 @@ void CInputManager::processMouseDownKill(const IPointer::SButtonEvent& e) {
                 break;
             }
 
-            IPC::Socket2::sock()->postEvent({.event = "kill", .data = std::format("{:x}", rc<uintptr_t>(PWINDOW.m_data))});
+            IPC::Socket2::sock()->postEvent({.event = "kill", .data = std::format("{:x}", rc<uintptr_t>(PWINDOW.m_data)), .subject = PWINDOW});
             Event::bus()->m_events.window.kill.emit(PWINDOW);
 
             // kill the mf
@@ -1143,13 +1142,11 @@ void CInputManager::newKeyboard(SP<Aquamarine::IKeyboard> keyboard) {
 void CInputManager::newVirtualKeyboard(SP<CVirtualKeyboardV1Resource> keyboard) {
     // A virtual keyboard of an agent client is that agent's keyboard. It never types into
     // the human seat.
-    if (const auto OWNER = Actors::ownerOf(keyboard->client()); OWNER && Actors::isAgent(*OWNER)) {
-        if (g_pAgentManager)
-            g_pAgentManager->addVirtualKeyboard(*OWNER, CVirtualKeyboard::create(keyboard));
+    const auto KEYBOARD = CVirtualKeyboard::create(keyboard);
+    if (Actors::adoptVirtualKeyboard(keyboard->client(), KEYBOARD))
         return;
-    }
 
-    const auto PNEWKEYBOARD = m_keyboards.emplace_back(CVirtualKeyboard::create(keyboard));
+    const auto PNEWKEYBOARD = m_keyboards.emplace_back(KEYBOARD);
 
     setupKeyboard(PNEWKEYBOARD);
 
@@ -1322,13 +1319,11 @@ void CInputManager::applyConfigToKeyboard(SP<IKeyboard> pKeyboard) {
 void CInputManager::newVirtualMouse(SP<CVirtualPointerV1Resource> mouse) {
     // A virtual pointer of an agent client is that agent's pointer. It never moves the
     // human cursor.
-    if (const auto OWNER = Actors::ownerOf(mouse->client()); OWNER && Actors::isAgent(*OWNER)) {
-        if (g_pAgentManager)
-            g_pAgentManager->addVirtualPointer(*OWNER, CVirtualPointer::create(mouse));
+    const auto POINTER = CVirtualPointer::create(mouse);
+    if (Actors::adoptVirtualPointer(mouse->client(), POINTER))
         return;
-    }
 
-    const auto PMOUSE = m_pointers.emplace_back(CVirtualPointer::create(mouse));
+    const auto PMOUSE = m_pointers.emplace_back(POINTER);
 
     setupMouse(PMOUSE);
 

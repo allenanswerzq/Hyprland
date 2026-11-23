@@ -1,7 +1,6 @@
 #include "LifecyclePolicyAdapter.hpp"
 
 #include "LifecyclePolicy.hpp"
-#include "../../actors/ActorRegistry.hpp"
 #include "../../actors/Actors.hpp"
 #include "../../animation/WorkspaceAnimationController.hpp"
 #include "../../config/shared/workspace/WorkspaceRuleManager.hpp"
@@ -121,12 +120,8 @@ class CHyprlandPolicyContext final : public IPolicyContext {
 
         // An agent has exactly one workspace, named after the agent.
         if (Actors::isAgentMonitor(MONITOR)) {
-            const auto ACTOR = g_pActorRegistry->actor(MONITOR->m_actor);
-            if (!ACTOR)
-                return {};
-
             return {{
-                .identity            = SWorkspaceIdentity{::Workspace::SWorkspaceSpecialID{}, ACTOR->name, ::Workspace::eWorkspaceType::NORMAL},
+                .identity            = SWorkspaceIdentity{::Workspace::SWorkspaceSpecialID{}, Actors::nameOf(MONITOR->m_actor), ::Workspace::eWorkspaceType::NORMAL},
                 .boundMonitorAddress = std::nullopt,
             }};
         }

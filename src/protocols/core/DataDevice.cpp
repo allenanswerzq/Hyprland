@@ -18,7 +18,6 @@
 #include "../../xwayland/Dnd.hpp"
 #include "../../event/EventBus.hpp"
 #include "../../actors/Actors.hpp"
-#include "../../actors/AgentManager.hpp"
 using namespace Hyprutils::OS;
 
 static constexpr uint32_t DND_ACTIONS = WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY | WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE | WL_DATA_DEVICE_MANAGER_DND_ACTION_ASK;
@@ -306,14 +305,8 @@ CWLDataDeviceResource::CWLDataDeviceResource(SP<CWlDataDevice> resource_) : m_re
         auto source = sourceR ? CWLDataSourceResource::fromResource(sourceR) : CSharedPointer<CWLDataSourceResource>{};
 
         // Agent clients have their own clipboard, held by their agent seat.
-        if (!Actors::humanControls(r->client())) {
-            if (source)
-                source->markUsed();
-
-            if (const auto CONTROLLER = Actors::controllerOf(r->client()); CONTROLLER && g_pAgentManager)
-                g_pAgentManager->setSelection(*CONTROLLER, source, false);
+        if (Actors::routeSelection(r->client(), source, false))
             return;
-        }
 
         if (!source) {
             LOG(Log::DEBUG, "Reset selection received");

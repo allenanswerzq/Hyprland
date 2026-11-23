@@ -3,7 +3,6 @@
 #include "MonitorPositionController.hpp"
 #include "MonitorState.hpp"
 
-#include "../actors/ActorTypes.hpp"
 #include "../actors/Actors.hpp"
 #include "../config/ConfigValue.hpp"
 #include "../debug/log/Logger.hpp"
@@ -81,16 +80,7 @@ void CMonitorLayoutController::arrange() const {
     LOG(Log::DEBUG, "arrangeMonitors: {} to arrange", arrangeableMonitors.size());
     State::monitorPositionController()->arrange(arrangeableMonitors, *PXWLFORCESCALEZERO);
 
-    // Each agent monitor gets a fixed spot far away from the human layout. Geometric lookups
-    // such as "which monitor is at this point" then never mix human and agent space.
-    for (const auto& m : State::monitorState()->monitors()) {
-        if (!Actors::isAgentMonitor(m))
-            continue;
-
-        const Vector2D POS = {Actors::AGENT_LAYOUT_ORIGIN_X + (m->m_actor - 1) * Actors::AGENT_LAYOUT_STRIDE, Actors::AGENT_LAYOUT_ORIGIN_Y};
-        m->moveTo(POS);
-        m->setXWaylandPosition(POS);
-    }
+    Actors::placeAgentMonitors();
 
     for (const auto& m : State::monitorState()->monitors()) {
         g_pHyprRenderer->arrangeLayersForMonitor(m->m_id);

@@ -74,6 +74,16 @@ CONTROL COMMANDS
     A borrowed window behaves like a human window until it is returned.
     *window* is a window selector, for example address:0x1234.
 
+**embed** *window* *host* *x* *y* *width* *height* *sourceX* *sourceY*
+
+    Shows *window* inside *host*, in the box *x*, *y*, *width*, *height* of
+    the host. The point *sourceX*, *sourceY* of the window lands at the box's
+    top left corner. Numbers are logical pixels. Input is not forwarded.
+
+**unembed** *window*
+
+    Stops showing *window* inside its host.
+
 INFO COMMANDS
 =============
 

@@ -1487,7 +1487,7 @@ TEST_F(CWorkspaceCaptureSceneTest, FractionalMonitorPrivacyMaskCoversEveryRender
     m_monitor->m_transform                                = WL_OUTPUT_TRANSFORM_NORMAL;
     m_workspace->m_forceRendering                         = true;
 
-    auto                      window = Desktop::View::CWindow::create(makeUnique<Desktop::View::CWaylandBackend>(nullptr), Actors::HUMAN_ACTOR_ID);
+    auto                      window = Desktop::View::CWindow::create(makeUnique<Desktop::View::CWaylandBackend>(nullptr));
     const Render::CScopeGuard removeWindow([&] { Desktop::windowState()->removeSafe(window); });
     window->m_workspace        = m_workspace;
     window->m_monitor          = m_monitor;
@@ -1527,7 +1527,7 @@ TEST_F(CWorkspaceCaptureSceneTest, FractionalMonitorPrivacyMaskCoversEveryRender
 }
 
 static PHLWINDOW makeSnapshotTestWindow(PHLWORKSPACE workspace) {
-    auto window = Desktop::View::CWindow::create(makeUnique<Desktop::View::CWaylandBackend>(nullptr), Actors::HUMAN_ACTOR_ID);
+    auto window = Desktop::View::CWindow::create(makeUnique<Desktop::View::CWaylandBackend>(nullptr));
     // Query tests need window metadata, not a window in the rendered scene.
     Desktop::windowState()->removeSafe(window);
     window->m_workspace        = workspace;

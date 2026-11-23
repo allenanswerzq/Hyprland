@@ -7,6 +7,7 @@
 #include <hyprutils/os/FileDescriptor.hpp>
 #include <wayland-server-core.h>
 
+#include <string>
 #include <vector>
 
 namespace IPC::Socket2 {
@@ -30,7 +31,7 @@ namespace IPC::Socket2 {
 
     class CUnixImpl : public IImplementation {
       public:
-        CUnixImpl();
+        explicit CUnixImpl(std::string directory = "");
         virtual ~CUnixImpl();
 
         virtual bool send(std::string&& x) override;

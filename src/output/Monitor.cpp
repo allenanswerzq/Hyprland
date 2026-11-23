@@ -1,7 +1,6 @@
 #include "Monitor.hpp"
-#include "../actors/ActorRegistry.hpp"
 #include "../actors/Actors.hpp"
-#include "../actors/WindowEmbeds.hpp"
+#include "../embed/WindowEmbeds.hpp"
 #include "../desktop/view/window/WindowEffectsController.hpp"
 #include "../desktop/view/window/WindowPresentation.hpp"
 #include "../helpers/MiscFunctions.hpp"
@@ -93,21 +92,8 @@ constexpr const char* drmFormatToString(uint32_t drmFormat) {
     }
 }
 
-// Only a headless output with a reserved agent name becomes an agent monitor. A real
-// monitor that happens to use the same name stays human.
-static Actors::ActorID actorForOutput(const SP<Aquamarine::IOutput>& output) {
-    if (!g_pActorRegistry || !output)
-        return Actors::HUMAN_ACTOR_ID;
-
-    const auto BACKEND = output->getBackend();
-    if (!BACKEND || BACKEND->type() != Aquamarine::AQ_BACKEND_HEADLESS)
-        return Actors::HUMAN_ACTOR_ID;
-
-    return g_pActorRegistry->actorForOutputName(output->name).value_or(Actors::HUMAN_ACTOR_ID);
-}
-
 CMonitor::CMonitor(SP<Aquamarine::IOutput> output_) :
-    m_actor(actorForOutput(output_)), m_name(output_->name), m_state(this), m_output(output_), m_imageDescription(getDefaultImageDescription()) {
+    m_actor(Actors::actorForOutput(output_)), m_name(output_->name), m_state(this), m_output(output_), m_imageDescription(getDefaultImageDescription()) {
     Animation::mgr()->createAnimation(0.f, m_specialFade, Config::animationTree()->getAnimationPropertyConfig("specialWorkspaceIn"), AVARDAMAGE_NONE);
     m_specialFade->setUpdateCallback([this](auto) { g_pHyprRenderer->damageMonitor(m_self.lock()); });
     Animation::mgr()->createAnimation(0.f, m_specialDim, Config::animationTree()->getAnimationPropertyConfig("specialWorkspaceIn"), AVARDAMAGE_NONE);
@@ -396,8 +382,8 @@ void CMonitor::onConnect(bool noRule) {
 
     m_events.connect.emit();
 
-    IPC::Socket2::sock()->postEvent({"monitoradded", m_name});
-    IPC::Socket2::sock()->postEvent({"monitoraddedv2", std::format("{},{},{}", m_id, m_name, m_shortDescription)});
+    IPC::Socket2::sock()->postEvent({.event = "monitoradded", .data = m_name, .subject = m_self.lock()});
+    IPC::Socket2::sock()->postEvent({.event = "monitoraddedv2", .data = std::format("{},{},{}", m_id, m_name, m_shortDescription), .subject = m_self.lock()});
     Event::bus()->m_events.monitor.added.emit(m_self.lock());
 }
 
@@ -406,8 +392,8 @@ void CMonitor::onDisconnect(bool destroy) {
     CScopeGuard x = {[this]() {
         if (g_pCompositor->m_isShuttingDown)
             return;
-        IPC::Socket2::sock()->postEvent({"monitorremoved", m_name});
-        IPC::Socket2::sock()->postEvent({"monitorremovedv2", std::format("{},{},{}", m_id, m_name, m_shortDescription)});
+        IPC::Socket2::sock()->postEvent({.event = "monitorremoved", .data = m_name, .subject = m_self.lock()});
+        IPC::Socket2::sock()->postEvent({.event = "monitorremovedv2", .data = std::format("{},{},{}", m_id, m_name, m_shortDescription), .subject = m_self.lock()});
         Event::bus()->m_events.monitor.removed.emit(m_self.lock());
         State::monitorLayoutController()->scheduleRecheck();
     }};
@@ -1426,8 +1412,9 @@ void CMonitor::changeWorkspace(const PHLWORKSPACE& pWorkspace, bool internal, bo
         g_layoutManager->recalculateMonitor(m_self.lock(), Layout::CLayoutManager::RECALCULATE_MONITOR_REASON_WORKSPACE_CHANGE);
 
         if (!noFocus) {
-            IPC::Socket2::sock()->postEvent({"workspace", pWorkspace->addressableName()});
-            IPC::Socket2::sock()->postEvent({"workspacev2", std::format("{},{}", pWorkspace->addressableName(), pWorkspace->displayName())});
+            IPC::Socket2::sock()->postEvent({.event = "workspace", .data = pWorkspace->addressableName(), .subject = pWorkspace});
+            IPC::Socket2::sock()->postEvent(
+                {.event = "workspacev2", .data = std::format("{},{}", pWorkspace->addressableName(), pWorkspace->displayName()), .subject = pWorkspace});
             Event::bus()->m_events.workspace.active.emit(pWorkspace);
         }
     }
@@ -1492,8 +1479,8 @@ void CMonitor::setSpecialWorkspace(const PHLWORKSPACE& pWorkspace, bool noFocus)
         if (m_activeSpecialWorkspace) {
             m_activeSpecialWorkspace->setVisible(false);
             Animation::Workspace::startAnimation(m_activeSpecialWorkspace, Animation::Workspace::ANIMATION_TYPE_OUT, false, false, m_activeSpecialWorkspace->m_animationStyle);
-            IPC::Socket2::sock()->postEvent({"activespecial", std::format(",{}", m_name)});
-            IPC::Socket2::sock()->postEvent({"activespecialv2", std::format(",,{}", m_name)});
+            IPC::Socket2::sock()->postEvent({.event = "activespecial", .data = std::format(",{}", m_name), .subject = m_self.lock()});
+            IPC::Socket2::sock()->postEvent({.event = "activespecialv2", .data = std::format(",,{}", m_name), .subject = m_self.lock()});
 
             // Reset layer surface state when closing special workspace
             for (auto const& ls : Desktop::layerState()->layers()) {
@@ -1551,8 +1538,8 @@ void CMonitor::setSpecialWorkspace(const PHLWORKSPACE& pWorkspace, bool noFocus)
             else
                 g_pInputManager->refocus();
         }
-        IPC::Socket2::sock()->postEvent({"activespecial", std::format(",{}", PMONITOR->m_name)});
-        IPC::Socket2::sock()->postEvent({"activespecialv2", std::format(",,{}", PMONITOR->m_name)});
+        IPC::Socket2::sock()->postEvent({.event = "activespecial", .data = std::format(",{}", PMONITOR->m_name), .subject = PMONITOR});
+        IPC::Socket2::sock()->postEvent({.event = "activespecialv2", .data = std::format(",,{}", PMONITOR->m_name), .subject = PMONITOR});
 
         // Reset layer surfaces state on the old monitor when special workspace is stolen
         for (auto const& ls : Desktop::layerState()->layers()) {
@@ -1626,8 +1613,9 @@ void CMonitor::setSpecialWorkspace(const PHLWORKSPACE& pWorkspace, bool noFocus)
             g_pInputManager->refocus();
     }
 
-    IPC::Socket2::sock()->postEvent({"activespecial", std::format("{},{}", pWorkspace->addressableName(), m_name)});
-    IPC::Socket2::sock()->postEvent({"activespecialv2", std::format("{},{},{}", pWorkspace->addressableName(), pWorkspace->displayName(), m_name)});
+    IPC::Socket2::sock()->postEvent({.event = "activespecial", .data = std::format("{},{}", pWorkspace->addressableName(), m_name), .subject = m_self.lock()});
+    IPC::Socket2::sock()->postEvent(
+        {.event = "activespecialv2", .data = std::format("{},{},{}", pWorkspace->addressableName(), pWorkspace->displayName(), m_name), .subject = m_self.lock()});
 
     g_pHyprRenderer->damageMonitor(m_self.lock());
 
@@ -1866,8 +1854,8 @@ void CMonitor::recheckSolitary() {
 
     m_solitaryClient = Fullscreen::controller()->getFullscreenWindow(m_self.lock());
 
-    // A window that shows others inside it (actors/WindowEmbeds) is more than its own buffer.
-    if (const auto SOLITARY = m_solitaryClient.lock(); SOLITARY && g_pWindowEmbeds && !g_pWindowEmbeds->embeddedIn(SOLITARY).empty())
+    // A window that shows others inside it (src/embed) is more than its own buffer.
+    if (const auto SOLITARY = m_solitaryClient.lock(); SOLITARY && Embed::isHost(SOLITARY))
         m_solitaryClient.reset();
 }
 

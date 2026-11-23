@@ -38,12 +38,9 @@ void CScreencopyClient::captureOutput(uint32_t frame, int32_t overlayCursor_, wl
 
     // Without a session the frame fails, so a client that may not see this monitor gets a
     // failed frame instead of its contents.
-    if (!Actors::mayCapture(m_resource->client(), PMONITOR))
-        LOG(Log::WARN, "Screencopy: client {:x} may not capture monitor {}", (uintptr_t)m_resource->client(), PMONITOR->m_name);
-    else if (box.w == 0 && box.h == 0)
-        session = Screenshare::mgr()->getManagedSession(m_resource->client(), PMONITOR);
-    else
-        session = Screenshare::mgr()->getManagedSession(m_resource->client(), PMONITOR, box);
+    if (Actors::mayCapture(m_resource->client(), PMONITOR))
+        session = box.w == 0 && box.h == 0 ? Screenshare::mgr()->getManagedSession(m_resource->client(), PMONITOR) :
+                                             Screenshare::mgr()->getManagedSession(m_resource->client(), PMONITOR, box);
 
     const auto FRAME = PROTO::screencopy->m_frames.emplace_back(
         makeShared<CScreencopyFrame>(makeShared<CZwlrScreencopyFrameV1>(m_resource->client(), m_resource->version(), frame), session, !!overlayCursor_));

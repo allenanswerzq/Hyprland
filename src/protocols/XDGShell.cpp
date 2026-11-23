@@ -2,9 +2,7 @@
 #include "XDGDialog.hpp"
 #include <algorithm>
 #include "../Compositor.hpp"
-#include "../actors/ActorRegistry.hpp"
 #include "../actors/Actors.hpp"
-#include "../actors/AgentManager.hpp"
 #include "../helpers/string/StringUtils.hpp"
 #include "../managers/SeatManager.hpp"
 #include "../managers/eventLoop/EventLoopManager.hpp"
@@ -88,13 +86,8 @@ CXDGPopupResource::CXDGPopupResource(SP<CXdgPopup> resource_, SP<CXDGSurfaceReso
         LOG(Log::DEBUG, "xdg_popup {:x} requests grab", (uintptr_t)this);
 
         // An agent popup grabs its agent seat. The human seat grab stays untouched.
-        if (!Actors::humanControls(r->client())) {
-            if (const auto CONTROLLER = Actors::controllerOf(r->client()); CONTROLLER && g_pAgentManager)
-                g_pAgentManager->addPopupGrab(*CONTROLLER, m_self.lock());
-            else
-                done();
+        if (Actors::routePopupGrab(r->client(), m_self.lock()))
             return;
-        }
 
         PROTO::xdgShell->addOrStartGrab(m_self.lock());
     });
@@ -611,8 +604,7 @@ CXDGSurfaceResource::CXDGSurfaceResource(SP<CXdgSurface> resource_, SP<CXDGWMBas
     });
 
     m_resource->setGetToplevel([this](CXdgSurface* r, uint32_t id) {
-        const auto& registry = g_pActorRegistry;
-        const auto  OWNER    = registry ? registry->ownerOf(r->client()) : std::optional<Actors::ActorID>{Actors::HUMAN_ACTOR_ID};
+        const auto OWNER = Actors::ownerOf(r->client());
         if (!OWNER) {
             LOG(Log::ERR, "xdg_surface {:x} has no actor owner", (uintptr_t)this);
             wl_client_post_implementation_error(r->client(), "xdg_toplevel client has no actor owner");

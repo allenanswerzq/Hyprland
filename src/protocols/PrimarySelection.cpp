@@ -4,7 +4,6 @@
 #include "core/Seat.hpp"
 #include "../config/ConfigValue.hpp"
 #include "../actors/Actors.hpp"
-#include "../actors/AgentManager.hpp"
 using namespace Hyprutils::OS;
 
 CPrimarySelectionOffer::CPrimarySelectionOffer(SP<CZwpPrimarySelectionOfferV1> resource_, SP<IDataSource> source_) : m_source(source_), m_resource(resource_) {
@@ -125,14 +124,8 @@ CPrimarySelectionDevice::CPrimarySelectionDevice(SP<CZwpPrimarySelectionDeviceV1
         auto source = sourceR ? CPrimarySelectionSource::fromResource(sourceR) : CSharedPointer<CPrimarySelectionSource>{};
 
         // Agent clients have their own primary selection, held by their agent seat.
-        if (!Actors::humanControls(r->client())) {
-            if (source)
-                source->markUsed();
-
-            if (const auto CONTROLLER = Actors::controllerOf(r->client()); CONTROLLER && g_pAgentManager)
-                g_pAgentManager->setSelection(*CONTROLLER, source, true);
+        if (Actors::routeSelection(r->client(), source, true))
             return;
-        }
 
         if (!source) {
             LOG(Log::DEBUG, "wlr reset selection received");

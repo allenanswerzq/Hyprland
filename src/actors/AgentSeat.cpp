@@ -10,6 +10,7 @@
 #include "../desktop/view/window/WindowGroupMembership.hpp"
 #include "../desktop/view/window/WindowPresentation.hpp"
 #include "../helpers/time/Time.hpp"
+#include "../ipc/s2/S2.hpp"
 #include "../layout/LayoutManager.hpp"
 #include "../layout/target/WindowTarget.hpp"
 #include "../managers/eventLoop/EventLoopManager.hpp"
@@ -441,9 +442,9 @@ void CAgentSeat::focusWindow(PHLWINDOW window, SP<CWLSurfaceResource> surface) {
     if (!window) {
         setKeyboardSurface(nullptr);
 
-        if (PREVIOUS && g_pAgentManager) {
-            g_pAgentManager->postEvent(m_actor, "activewindow", ",");
-            g_pAgentManager->postEvent(m_actor, "activewindowv2", "");
+        if (PREVIOUS) {
+            IPC::Socket2::sock()->postEvent({.event = "activewindow", .data = ",", .subject = m_actor});
+            IPC::Socket2::sock()->postEvent({.event = "activewindowv2", .data = "", .subject = m_actor});
         }
 
         return;
@@ -471,10 +472,9 @@ void CAgentSeat::focusWindow(PHLWINDOW window, SP<CWLSurfaceResource> surface) {
     if (window->grouping().group())
         window->deactivateGroupMembers();
 
-    if (g_pAgentManager) {
-        g_pAgentManager->postEvent(m_actor, "activewindow", std::format("{},{}", window->metadata().appID(), window->metadata().title()));
-        g_pAgentManager->postEvent(m_actor, "activewindowv2", std::format("{:x}", rc<uintptr_t>(window.get())));
-    }
+    // The agent's focus, so its socket2 hears it whoever the window belongs to.
+    IPC::Socket2::sock()->postEvent({.event = "activewindow", .data = std::format("{},{}", window->metadata().appID(), window->metadata().title()), .subject = m_actor});
+    IPC::Socket2::sock()->postEvent({.event = "activewindowv2", .data = std::format("{:x}", rc<uintptr_t>(window.get())), .subject = m_actor});
 }
 
 void CAgentSeat::focusSurface(SP<CWLSurfaceResource> surface) {

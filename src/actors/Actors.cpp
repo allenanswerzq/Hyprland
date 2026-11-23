@@ -3,35 +3,68 @@
 #include "ActorRegistry.hpp"
 #include "AgentManager.hpp"
 
-#include "../desktop/view/window/Window.hpp"
+#include "../debug/log/Logger.hpp"
 #include "../desktop/view/LayerSurface.hpp"
+#include "../desktop/view/window/Window.hpp"
 #include "../output/Monitor.hpp"
-#include "../protocols/IdleNotify.hpp"
-#include "../protocols/IdleInhibit.hpp"
-#include "../protocols/PointerConstraints.hpp"
-#include "../protocols/Screencopy.hpp"
-#include "../protocols/ShortcutsInhibit.hpp"
-#include "../protocols/VirtualKeyboard.hpp"
-#include "../protocols/VirtualPointer.hpp"
-#include "../protocols/XDGOutput.hpp"
 #include "../protocols/core/Compositor.hpp"
-#include "../protocols/core/Output.hpp"
+#include "../state/MonitorState.hpp"
 #include "../workspace/HLWorkspace.hpp"
 
-#include <wayland-server-protocol.h>
+#include <aquamarine/backend/Backend.hpp>
+#include <aquamarine/output/Output.hpp>
 
-static std::optional<Actors::CPendingOutputGlobal::SScope> s_pendingOutput;
+#include <cstdlib>
+#include <format>
+#include <type_traits>
+#include <variant>
 
-Actors::CPendingOutputGlobal::CPendingOutputGlobal(ActorID actor) : m_previous(s_pendingOutput) {
-    s_pendingOutput = SScope{.actor = actor};
+#include <wayland-server-core.h>
+
+/*
+    Lifecycle, identity and desktops. The rules live in ActorPolicy.cpp.
+*/
+
+void Actors::init(wl_display* display) {
+    g_pActorRegistry = makeUnique<CActorRegistry>(display);
 }
 
-Actors::CPendingOutputGlobal::CPendingOutputGlobal(const wl_client* onlyClient) : m_previous(s_pendingOutput) {
-    s_pendingOutput = SScope{.client = onlyClient};
+std::expected<void, std::string> Actors::createAgentSockets(const std::string& humanSocket) {
+    if (!g_pActorRegistry)
+        return std::unexpected("actors are not initialized");
+
+    g_pActorRegistry->setHumanSocket(humanSocket);
+
+    const auto COUNT_ENV = getenv("HYPRLAND_AGENT_COUNT");
+    if (!COUNT_ENV)
+        return {};
+
+    const auto COUNT = parseAgentCount(COUNT_ENV);
+    if (!COUNT)
+        return std::unexpected(std::format("HYPRLAND_AGENT_COUNT is invalid: {}", COUNT.error()));
+
+    const auto RUNTIME_DIR = getenv("XDG_RUNTIME_DIR");
+    return g_pActorRegistry->createAgentSockets(*COUNT, RUNTIME_DIR ? RUNTIME_DIR : "");
 }
 
-Actors::CPendingOutputGlobal::~CPendingOutputGlobal() {
-    s_pendingOutput = m_previous;
+void Actors::start() {
+    if (!g_pActorRegistry || g_pAgentManager)
+        return;
+
+    g_pAgentManager = makeUnique<CAgentManager>();
+    g_pAgentManager->start();
+}
+
+void Actors::destroy() {
+    g_pAgentManager.reset();
+    g_pActorRegistry.reset();
+}
+
+wl_client* Actors::createClient(wl_display* display, int fd, ActorID owner) {
+    if (!g_pActorRegistry)
+        return wl_client_create(display, fd);
+
+    return g_pActorRegistry->createClient(fd, owner);
 }
 
 std::optional<Actors::ActorID> Actors::ownerOf(const wl_client* client) {
@@ -76,6 +109,19 @@ Actors::ActorID Actors::actorOf(const PHLWORKSPACE& workspace) {
     return workspace ? workspace->actor() : HUMAN_ACTOR_ID;
 }
 
+// Only a headless output with a reserved agent name becomes an agent monitor. A real monitor
+// that happens to use the same name stays human.
+Actors::ActorID Actors::actorForOutput(const SP<Aquamarine::IOutput>& output) {
+    if (!g_pActorRegistry || !output)
+        return HUMAN_ACTOR_ID;
+
+    const auto BACKEND = output->getBackend();
+    if (!BACKEND || BACKEND->type() != Aquamarine::AQ_BACKEND_HEADLESS)
+        return HUMAN_ACTOR_ID;
+
+    return g_pActorRegistry->actorForOutputName(output->name).value_or(HUMAN_ACTOR_ID);
+}
+
 bool Actors::isAgent(ActorID id) {
     return g_pActorRegistry && g_pActorRegistry->isAgent(id);
 }
@@ -108,119 +154,99 @@ std::vector<std::string> Actors::borrowTags(ActorID owner) {
     return tags;
 }
 
+std::string Actors::nameOf(ActorID id) {
+    if (!g_pActorRegistry)
+        return id == HUMAN_ACTOR_ID ? "human" : "unknown";
+
+    const auto ACTOR = g_pActorRegistry->actor(id);
+    return ACTOR ? ACTOR->name : "unknown";
+}
+
+bool Actors::isReservedOutputName(std::string_view name) {
+    return g_pActorRegistry && g_pActorRegistry->isReservedOutputName(name);
+}
+
+bool Actors::isReservedWorkspaceName(std::string_view name, ActorID actor) {
+    if (!g_pActorRegistry)
+        return false;
+
+    const auto OWNER = g_pActorRegistry->actorByName(name);
+    return OWNER && OWNER->kind == eActorKind::AGENT && OWNER->id != actor;
+}
+
+Actors::ActorID Actors::desktopOf(const PHLWINDOW& window) {
+    if (!window)
+        return HUMAN_ACTOR_ID;
+
+    // The surface is gone, as on destroy: the window is where its workspace is.
+    if ((!window->wlSurface() || !window->wlSurface()->resource()) && window->m_workspace)
+        return actorOf(window->m_workspace);
+
+    return controllerOf(window);
+}
+
+Actors::ActorID Actors::desktopOf(const PHLWORKSPACE& workspace) {
+    return actorOf(workspace);
+}
+
+Actors::ActorID Actors::desktopOf(const PHLMONITOR& monitor) {
+    return actorOf(monitor);
+}
+
+Actors::ActorID Actors::desktopOf(const PHLLS& layer) {
+    return layer ? actorOf(layer->m_monitor.lock()) : HUMAN_ACTOR_ID;
+}
+
 bool Actors::humanSees(const PHLMONITOR& monitor) {
-    return !isAgentMonitor(monitor);
+    return desktopOf(monitor) == HUMAN_ACTOR_ID;
 }
 
 bool Actors::humanSees(const PHLWORKSPACE& workspace) {
-    return !isAgent(actorOf(workspace));
+    return desktopOf(workspace) == HUMAN_ACTOR_ID;
 }
 
-// The workspace covers a borrowed window whose surface is already gone, as on destroy.
 bool Actors::humanSees(const PHLWINDOW& window) {
-    return window && (humanControls(window) || (window->m_workspace && humanSees(window->m_workspace)));
+    return window && desktopOf(window) == HUMAN_ACTOR_ID;
 }
 
 bool Actors::humanSees(const PHLLS& layer) {
-    return layer && humanSees(layer->m_monitor.lock());
+    return layer && desktopOf(layer) == HUMAN_ACTOR_ID;
 }
 
-// Privileged globals an agent still gets. Virtual devices drive the agent's own seat. With
-// screencopy and xdg_output an agent sees its own screen: its wl_outputs are only its own
-// monitors, and mayCapture refuses the human's monitors behind a borrow proxy.
-static bool isAgentPrivilegedGlobal(const wl_global* global) {
-    const auto IS = [global](const auto& protocol) { return protocol && global == protocol->getGlobal(); };
-
-    return IS(PROTO::virtualKeyboard) || IS(PROTO::virtualPointer) || IS(PROTO::screencopy) || IS(PROTO::xdgOutput);
+PHLMONITOR Actors::monitorOf(ActorID agent) {
+    return g_pAgentManager ? g_pAgentManager->monitorFor(agent) : nullptr;
 }
 
-static bool isHiddenFromAgents(const wl_global* global) {
-    const auto IS = [global](const auto& protocol) { return protocol && global == protocol->getGlobal(); };
+void Actors::placeAgentMonitors() {
+    for (const auto& m : State::monitorState()->monitors()) {
+        if (!isAgentMonitor(m))
+            continue;
 
-    // ext_idle_notifier reports human activity. Idle inhibitors would keep the human's
-    // screen on. Shortcut inhibitors and pointer constraints act on the human's devices.
-    return IS(PROTO::idle) || IS(PROTO::idleInhibit) || IS(PROTO::shortcutsInhibit) || IS(PROTO::constraints);
+        const Vector2D POS = {AGENT_LAYOUT_ORIGIN_X + (m->m_actor - 1) * AGENT_LAYOUT_STRIDE, AGENT_LAYOUT_ORIGIN_Y};
+        m->moveTo(POS);
+        m->setXWaylandPosition(POS);
+    }
 }
 
-bool Actors::globalVisibleTo(const wl_client* client, const wl_global* global, bool privileged) {
-    const auto& registry = g_pActorRegistry;
-    if (!registry)
-        return true;
-
-    const auto OWNER = registry->ownerOf(client);
-    if (!OWNER)
-        return false;
-
-    // A wl_output global belongs to exactly one actor: the actor of its monitor.
-    const auto MONITOR_OUTPUT_VISIBLE = [&](const SP<CWLOutputProtocol>& output) -> std::optional<bool> {
-        if (!output || output->getGlobal() != global)
-            return std::nullopt;
-
-        const auto MONITOR = output->m_monitor.lock();
-        return MONITOR ? MONITOR->m_actor == *OWNER : *OWNER == HUMAN_ACTOR_ID;
-    };
-
-    for (const auto& [name, output] : PROTO::outputs) {
-        if (const auto VISIBLE = MONITOR_OUTPUT_VISIBLE(output); VISIBLE)
-            return *VISIBLE;
-    }
-
-    // A borrow proxy output is visible only to the borrowed client.
-    if (g_pAgentManager) {
-        if (const auto PROXYCLIENT = g_pAgentManager->proxyOutputClient(global); PROXYCLIENT.has_value())
-            return *PROXYCLIENT == client;
-    }
-
-    // Retired outputs still need the right audience for their global_remove event. Proxies
-    // are retired here too, so this check runs after the proxy check.
-    for (const auto& output : PROTO::defunctOutputs) {
-        if (const auto VISIBLE = MONITOR_OUTPUT_VISIBLE(output); VISIBLE)
-            return *VISIBLE;
-    }
-
-    // A wl_output global that is not registered yet is being created right now.
-    if (wl_global_get_interface(global) == &wl_output_interface) {
-        if (!s_pendingOutput)
-            return *OWNER == HUMAN_ACTOR_ID;
-
-        if (s_pendingOutput->client)
-            return s_pendingOutput->client == client;
-
-        return s_pendingOutput->actor == *OWNER;
-    }
-
-    if (!registry->isAgent(*OWNER))
-        return true;
-
-    if (isHiddenFromAgents(global))
-        return false;
-
-    return !privileged || isAgentPrivilegedGlobal(global);
+Vector2D Actors::outputPosition(const PHLMONITOR& monitor, const Vector2D& position) {
+    return isAgentMonitor(monitor) ? Vector2D{} : position;
 }
 
-bool Actors::mayCapture(const wl_client* client, const PHLMONITOR& monitor) {
-    if (!monitor)
-        return false;
-
-    const auto OWNER = ownerOf(client);
-    if (!OWNER)
-        return false;
-
-    return !isAgent(*OWNER) || monitor->m_actor == *OWNER;
+Actors::ActorID Actors::eventAudience(const SEventSubject& subject) {
+    return std::visit(
+        [](const auto& x) -> ActorID {
+            using T = std::decay_t<decltype(x)>;
+            if constexpr (std::is_same_v<T, std::monostate>)
+                return HUMAN_ACTOR_ID;
+            else if constexpr (std::is_same_v<T, ActorID>)
+                return x;
+            else
+                return desktopOf(x);
+        },
+        subject);
 }
 
-std::vector<SP<CWLOutputResource>> Actors::outputResourcesFor(const PHLMONITOR& monitor, wl_client* client) {
-    std::vector<SP<CWLOutputResource>> resources;
-    if (!monitor)
-        return resources;
-
-    if (PROTO::outputs.contains(monitor->m_name))
-        resources = PROTO::outputs.at(monitor->m_name)->outputResourcesFrom(client);
-
-    if (g_pAgentManager) {
-        for (auto& proxy : g_pAgentManager->proxyOutputResources(monitor, client))
-            resources.emplace_back(std::move(proxy));
-    }
-
-    return resources;
+void Actors::postAgentEvent(ActorID agent, const IPC::Socket2::SEvent& event) {
+    if (g_pAgentManager)
+        g_pAgentManager->postEvent(agent, event);
 }

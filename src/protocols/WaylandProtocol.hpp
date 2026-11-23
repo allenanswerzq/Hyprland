@@ -20,8 +20,19 @@ struct SIWaylandProtocolDestroyWrapper {
 
 class IWaylandProtocol {
   public:
-    IWaylandProtocol(const wl_interface* iface, const int& ver, const std::string& name);
+    // Decides which clients see the global. Without one, every client does (subject to the
+    // compositor's global filter).
+    using FClientFilter = std::function<bool(const wl_client*)>;
+
+    IWaylandProtocol(const wl_interface* iface, const int& ver, const std::string& name, FClientFilter clientFilter = {});
     virtual ~IWaylandProtocol();
+
+    // The protocol that created global, or nullptr for a global Hyprland did not create
+    // through IWaylandProtocol. Works while wl_global_create is still running.
+    static IWaylandProtocol*        fromGlobal(const wl_global* global);
+
+    bool                            hasClientFilter() const;
+    bool                            visibleTo(const wl_client* client) const;
 
     virtual void                    onDisplayDestroy();
     virtual void                    removeGlobal();
@@ -32,6 +43,7 @@ class IWaylandProtocol {
     SIWaylandProtocolDestroyWrapper m_liDisplayDestroy;
 
   private:
-    std::string m_name;
-    wl_global*  m_global = nullptr;
+    std::string   m_name;
+    FClientFilter m_clientFilter;
+    wl_global*    m_global = nullptr;
 };

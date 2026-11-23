@@ -24,7 +24,6 @@
 #include "debug/log/Logger.hpp"
 #include "../defines.hpp"
 #include "../Compositor.hpp"
-#include "../actors/ActorRegistry.hpp"
 #include "../pointer/cursor/CursorManager.hpp"
 using namespace Hyprutils::OS;
 
@@ -355,10 +354,7 @@ bool CXWaylandServer::start() {
         return false;
     }
 
-    if (const auto& registry = g_pActorRegistry)
-        m_xwaylandClient = registry->createClient(m_waylandFDs[0].get(), Actors::HUMAN_ACTOR_ID);
-    else
-        m_xwaylandClient = wl_client_create(g_pCompositor->m_wlDisplay, m_waylandFDs[0].get());
+    m_xwaylandClient = wl_client_create(g_pCompositor->m_wlDisplay, m_waylandFDs[0].get());
     if (!m_xwaylandClient) {
         LOG(Log::ERR, "wl_client_create failed");
         die();

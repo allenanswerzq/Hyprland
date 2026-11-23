@@ -8,7 +8,7 @@
 #include "../../render/Renderer.hpp"
 #include "../../managers/input/InputManager.hpp"
 #include "../../output/Monitor.hpp"
-#include "../../actors/WindowEmbeds.hpp"
+#include "../../embed/WindowEmbeds.hpp"
 
 using namespace Desktop;
 using namespace Desktop::View;
@@ -218,11 +218,10 @@ void CSubsurface::onCommit() {
     if (!m_windowParent.expired() && (!m_windowParent->mapped() || !m_windowParent->m_workspace->visible())) {
         m_lastSize = m_wlSurface->resource()->m_current.size;
 
-        // A window shown inside another one (actors/WindowEmbeds) is seen through its host, though its own
+        // A window shown inside another one (src/embed) is seen through its host, though its own
         // workspace is hidden: a commit redraws the host's box.
-        if (m_windowParent->mapped() && g_pWindowEmbeds && g_pWindowEmbeds->hostOf(m_windowParent.lock())) {
+        if (m_windowParent->mapped() && Embed::damageThroughHost(m_windowParent.lock())) {
             m_lastPosition = m_subsurface->m_position;
-            g_pWindowEmbeds->damage(m_windowParent.lock());
             return;
         }
 

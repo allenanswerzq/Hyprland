@@ -108,13 +108,8 @@ void CXDGActivationProtocol::bindManager(wl_client* client, void* data, uint32_t
             return;
         }
 
-        // A token only works inside one actor. An agent cannot raise or mark a human window,
-        // and the human's tokens do not reach agent windows.
-        const auto ISSUER_CONTROLLER = ISSUER ? Actors::controllerOf(ISSUER) : std::optional<Actors::ActorID>{Actors::HUMAN_ACTOR_ID};
-        if (!ISSUER_CONTROLLER || *ISSUER_CONTROLLER != Actors::controllerOf(PWINDOW)) {
-            LOG(Log::DEBUG, "activate event with token {} crosses actors, ignoring", token);
+        if (!Actors::mayActivate(ISSUER, PWINDOW))
             return;
-        }
 
         if (CAN_ACTIVATE)
             PWINDOW->activate();

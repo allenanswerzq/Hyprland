@@ -243,7 +243,7 @@ void CLayerSurface::onMap() {
     if (!isHiddenByFullscreen(PMONITOR))
         m_animationController.apply(m_animationController.animateIn());
 
-    IPC::Socket2::sock()->postEvent({.event = "openlayer", .data = m_namespace});
+    IPC::Socket2::sock()->postEvent({.event = "openlayer", .data = m_namespace, .subject = m_self.lock()});
     Event::bus()->m_events.layer.opened.emit(m_self.lock());
 
     updateSurfaceScaleTransformDetails();
@@ -252,7 +252,7 @@ void CLayerSurface::onMap() {
 void CLayerSurface::onUnmap() {
     LOG(Log::DEBUG, "LayerSurface {:x} unmapped", rc<uintptr_t>(m_layerSurface.get()));
 
-    IPC::Socket2::sock()->postEvent({.event = "closelayer", .data = m_layerSurface->m_layerNamespace});
+    IPC::Socket2::sock()->postEvent({.event = "closelayer", .data = m_layerSurface->m_layerNamespace, .subject = m_self.lock()});
     Event::bus()->m_events.layer.closed.emit(m_self.lock());
 
     std::erase_if(g_pInputManager->m_exclusiveKeyboardLSes, [this](const auto& other) { return !other || other == m_self; });

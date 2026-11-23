@@ -132,7 +132,8 @@ namespace Desktop::View {
 
     class CWindow : public virtual IView, public virtual CGeometricMovableAnimated, public virtual IAlphaModifiable, public virtual CPopupOwner, public virtual CSubsurfaceOwner {
       public:
-        static PHLWINDOW create(UP<IWindowBackend> backend, Actors::ActorID owner);
+        // owner is the actor whose socket the window's client connected to.
+        static PHLWINDOW create(UP<IWindowBackend> backend, Actors::ActorID owner = Actors::HUMAN_ACTOR_ID);
         static PHLWINDOW fromView(SP<IView>);
 
       private:

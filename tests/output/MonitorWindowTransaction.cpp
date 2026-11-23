@@ -382,7 +382,7 @@ class CMonitorWindowTransactionTest : public ::testing::Test {
         auto xdg                = makeShared<CXDGSurfaceResource>(makeShared<CXdgSurface>(m_client, 6, m_nextID++), nullptr, surface);
         xdg->m_self             = xdg;
         xdg->m_current.geometry = {{}, box.size()};
-        auto window             = CWindow::create(makeUnique<CWaylandBackend>(xdg), Actors::HUMAN_ACTOR_ID);
+        auto window             = CWindow::create(makeUnique<CWaylandBackend>(xdg));
         if (!registered)
             Desktop::windowState()->removeSafe(window);
         window->m_monitor = m_monitor;
