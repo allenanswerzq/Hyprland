@@ -9,6 +9,7 @@
 #include "../desktop/view/window/Window.hpp"
 #include "../desktop/view/window/WindowGroupMembership.hpp"
 #include "../desktop/view/window/WindowPresentation.hpp"
+#include "../helpers/time/Time.hpp"
 #include "../layout/LayoutManager.hpp"
 #include "../layout/target/WindowTarget.hpp"
 #include "../managers/SeatManager.hpp"
@@ -218,6 +219,17 @@ void CAgentSeat::onMotionAbsolute(uint32_t timeMs, const Vector2D& absolute) {
     m_pointerPlaced   = true;
     clampPointer();
     updatePointerFocus(timeMs);
+}
+
+void CAgentSeat::warpPointer(const Vector2D& local) {
+    const auto BOX = monitorBox();
+    if (BOX.empty())
+        return;
+
+    m_pointerPosition = BOX.pos() + local;
+    m_pointerPlaced   = true;
+    clampPointer();
+    updatePointerFocus(Time::millis(Time::steadyNow()));
 }
 
 bool CAgentSeat::popupGrabActive() {

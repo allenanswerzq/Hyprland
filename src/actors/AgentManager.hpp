@@ -8,6 +8,7 @@
 
 #include "ActorTypes.hpp"
 #include "../desktop/DesktopTypes.hpp"
+#include "../helpers/math/Math.hpp"
 #include "../helpers/memory/Memory.hpp"
 #include "../helpers/signal/Signal.hpp"
 
@@ -60,6 +61,7 @@ namespace Actors {
 
         void                             focusWindow(ActorID actor, PHLWINDOW window, SP<CWLSurfaceResource> surface = nullptr);
         void                             focusSurface(ActorID actor, SP<CWLSurfaceResource> surface);
+        void                             warpPointer(ActorID actor, const Vector2D& monitorLocal);
         PHLWINDOW                        focusedWindow(ActorID actor) const;
         bool                             isWindowActive(const PHLWINDOW& window) const;
 

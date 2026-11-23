@@ -1,4 +1,5 @@
 #include "XDGOutput.hpp"
+#include "../actors/Actors.hpp"
 #include "../config/ConfigValue.hpp"
 #include "../output/Monitor.hpp"
 #include "../xwayland/XWayland.hpp"
@@ -118,7 +119,8 @@ void CXDGOutput::sendDetails() {
 
     static auto PXWLFORCESCALEZERO = CConfigValue<Config::INTEGER>("xwayland:force_zero_scaling");
 
-    const auto  POS = m_isXWayland ? m_monitor->m_xwaylandPosition : m_monitor->m_position;
+    // An agent's clients see only the agent's monitor, so it starts at 0,0 for them.
+    const auto POS = Actors::isAgentMonitor(m_monitor.lock()) ? Vector2D{} : m_isXWayland ? m_monitor->m_xwaylandPosition : m_monitor->m_position;
     m_resource->sendLogicalPosition(POS.x, POS.y);
 
     if (*PXWLFORCESCALEZERO && m_isXWayland)

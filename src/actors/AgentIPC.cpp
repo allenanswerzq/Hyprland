@@ -8,6 +8,7 @@
 #include "../desktop/state/WindowState.hpp"
 #include "../desktop/view/window/Window.hpp"
 #include "../helpers/MiscFunctions.hpp"
+#include "../helpers/time/Time.hpp"
 #include "../output/Monitor.hpp"
 #include "../workspace/HLWorkspace.hpp"
 
@@ -148,6 +149,49 @@ static std::string windowData(const PHLWINDOW& w, bool json, bool focused) {
                        rc<uintptr_t>(w.get()), w->metadata().title(), sc<int>(POSITION.x), sc<int>(POSITION.y), sc<int>(SIZE.x), sc<int>(SIZE.y), WORKSPACE,
                        sc<int>(w->isFloating()), w->metadata().appID(), w->metadata().title(), w->metadata().initialAppID(), w->metadata().initialTitle(), w->backend().pid(),
                        sc<int>(focused));
+}
+
+// The agent's monitor, at 0,0 like every agent monitor its clients see.
+static std::string monitorData(const PHLMONITOR& m, bool json) {
+    const auto WORKSPACE = m->m_activeWorkspace ? m->m_activeWorkspace->addressableName() : std::string{};
+
+    if (json) {
+        return std::format(R"#([{{
+    "id": {},
+    "name": "{}",
+    "width": {},
+    "height": {},
+    "refreshRate": {:.5f},
+    "x": 0,
+    "y": 0,
+    "scale": {:.2f},
+    "transform": {},
+    "activeWorkspace": "{}",
+    "focused": true
+}}])#",
+                           m->m_id, escapeJSONStrings(m->m_name), sc<int>(m->m_pixelSize.x), sc<int>(m->m_pixelSize.y), m->m_refreshRate, m->m_scale, sc<int>(m->m_transform),
+                           escapeJSONStrings(WORKSPACE));
+    }
+
+    return std::format("Monitor {} (ID {}):\n\t{}x{}@{:.5f} at 0x0\n\tactive workspace: {}\n\tscale: {:.2f}\n\ttransform: {}\n\tfocused: yes\n\n", m->m_name, m->m_id,
+                       sc<int>(m->m_pixelSize.x), sc<int>(m->m_pixelSize.y), m->m_refreshRate, WORKSPACE, m->m_scale, sc<int>(m->m_transform));
+}
+
+static std::optional<Vector2D> parsePosition(std::string_view value) {
+    const auto SEPARATOR = value.find(' ');
+    if (SEPARATOR == std::string_view::npos)
+        return std::nullopt;
+
+    const auto X = value.substr(0, SEPARATOR);
+    const auto Y = value.substr(SEPARATOR + 1);
+
+    double     x = 0, y = 0;
+    const auto RX = std::from_chars(X.data(), X.data() + X.size(), x);
+    const auto RY = std::from_chars(Y.data(), Y.data() + Y.size(), y);
+    if (RX.ec != std::errc{} || RX.ptr != X.data() + X.size() || RY.ec != std::errc{} || RY.ptr != Y.data() + Y.size())
+        return std::nullopt;
+
+    return Vector2D{x, y};
 }
 
 std::expected<UP<CAgentIPC>, std::string> CAgentIPC::create(ActorID actor, std::string directory) {
@@ -300,6 +344,14 @@ std::string CAgentIPC::dispatch(const std::string& request) const {
 
     const auto FOCUSED = g_pAgentManager ? g_pAgentManager->focusedWindow(m_actor) : nullptr;
 
+    if (command == "monitors") {
+        const auto MONITOR = g_pAgentManager ? g_pAgentManager->monitorFor(m_actor) : nullptr;
+        if (!MONITOR)
+            return json ? "[]" : "no monitor";
+
+        return monitorData(MONITOR, json);
+    }
+
     if (command == "clients") {
         std::string result = json ? "[" : "";
         bool        first  = true;
@@ -328,6 +380,16 @@ std::string CAgentIPC::dispatch(const std::string& request) const {
         const auto SEPARATOR  = ARGS.find(' ');
         const auto DISPATCHER = ARGS.substr(0, SEPARATOR);
         const auto VALUE      = SEPARATOR == std::string_view::npos ? std::string_view{} : ARGS.substr(SEPARATOR + 1);
+
+        // Positions are monitor-local, the same coordinates "clients" reports.
+        if (DISPATCHER == "movecursor") {
+            const auto POSITION = parsePosition(VALUE);
+            if (!POSITION)
+                return "movecursor takes X Y";
+
+            g_pAgentManager->warpPointer(m_actor, *POSITION);
+            return "ok";
+        }
 
         if (DISPATCHER != "focuswindow" && DISPATCHER != "closewindow")
             return std::format("unknown dispatcher {}", DISPATCHER);

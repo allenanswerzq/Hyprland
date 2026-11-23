@@ -54,6 +54,9 @@ namespace Actors {
         void                   setSelection(SP<IDataSource> source, bool primary);
         void                   addPopupGrab(SP<CXDGPopupResource> popup);
 
+        // Moves the pointer to a position local to the agent's monitor.
+        void warpPointer(const Vector2D& local);
+
         // Drops every piece of state that points at a client: focus, popup grabs and the
         // implicit pointer grab. Used before the client changes controller.
         void releaseClient(const wl_client* client);

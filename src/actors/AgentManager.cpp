@@ -196,6 +196,11 @@ void CAgentManager::focusSurface(ActorID actor, SP<CWLSurfaceResource> surface) 
         SEAT->focusSurface(surface);
 }
 
+void CAgentManager::warpPointer(ActorID actor, const Vector2D& local) {
+    if (const auto SEAT = seat(actor); SEAT)
+        SEAT->warpPointer(local);
+}
+
 PHLWINDOW CAgentManager::focusedWindow(ActorID actor) const {
     const auto SEAT = seat(actor);
     return SEAT ? SEAT->focusedWindow() : nullptr;
