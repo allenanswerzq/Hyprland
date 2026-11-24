@@ -17,7 +17,6 @@
 #include "../../helpers/signal/Signal.hpp"
 #include "../../helpers/math/Math.hpp"
 #include "../types/SurfaceRole.hpp"
-#include "../../actors/ActorTypes.hpp"
 
 constexpr const char* HL_SEAT_NAME = "Hyprland";
 
@@ -180,11 +179,6 @@ class CWLSeatProtocol : public IWaylandProtocol {
     bool                             clientHasCap(const wl_client* client, uint32_t cap) const;
 
     std::vector<SP<CWLSeatResource>> seatResourcesForClient(const wl_client* client) const;
-
-    // Resends capabilities, keymap and repeat info after a client changed controller.
-    void refreshClient(const wl_client* client);
-    // Sends a keymap and repeat info to every wl_keyboard of the clients an agent controls.
-    void updateAgentKeymap(Actors::ActorID actor, SP<IKeyboard> keyboard);
 
     struct {
         CSignalT<SP<CWLSeatResource>> newSeatResource;

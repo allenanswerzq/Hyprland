@@ -21,8 +21,9 @@ Every client has two actors:
 
 ## Layers
 
-Code outside this folder includes only `Actors.hpp`. Its free functions work without
-actors too (in unit tests, or before `init`): there is then only the human.
+Code outside this folder includes only `Actors.hpp`, and headers that need the `ActorID`
+type include the small `ActorTypes.hpp`. The free functions work without actors too (in
+unit tests, or before `init`): there is then only the human.
 
 | File | Role |
 |---|---|
@@ -47,6 +48,46 @@ The two globals, `g_pActorRegistry` and `g_pAgentManager`, are private to this f
    the agent monitors, seats and IPC sockets.
 4. `CCompositor::cleanup` calls `Actors::destroy` after all clients are gone.
 
+## Monitors
+
+`State::monitorState()` keeps agent monitors apart from the human's:
+
+- `allMonitors()` and `monitors()` hold only human monitors. Everything that is about
+  the human's screens loops over them unchanged: layout, pointer, cursor, fallback output,
+  session lock, DPMS, refresh rate.
+- `agentMonitors()` holds every agent monitor, enabled or not.
+- `renderMonitors()` holds `monitors()` and the enabled agent monitors. Code that follows
+  a surface wherever it is drawn uses it: damage, frame pacing, animations, decorations.
+
+A new loop over `monitors()` therefore never meets an agent monitor by surprise. Monitor
+queries (`State::monitorState()->query()`) search both lists, filtered by actor.
+
+Agent monitors still fire the shared `monitor.added` and `monitor.removed` events, because
+the protocols need them (`wl_output`, DMA-BUF feedback, presentation time). Listeners that
+are about the human's screens check `Actors::isAgentMonitor`.
+
+## Windows and layers
+
+Hyprland's window code calls a few hooks:
+
+- `CWindow::mapWindow` opens an agent window on its agent's monitor
+  (`Actors::monitorOf`) and skips the rules that move windows around the human layout.
+- `CWindow::unmapWindow` lets `Actors::refocusAfterClose` focus the agent's next window on
+  its agent seat.
+- `CLayerSurface::create` opens an agent's layer surface that names no monitor on the
+  agent's monitor (`Actors::agentMonitorOf`).
+
+`CAgentManager` tags a new window of a borrowed client `borrowed` and `agent-NNN` when it
+is created (`window.create`), so window rules see the tags when they are read at map.
+
+## Seats
+
+`CWLSeatProtocol` asks `Actors::keyboardFor`, `keyboardFocusFor` and `pointerFocusFor`
+which devices and focus a client follows, and offers each client its controller's
+capabilities (`capsForClient`). Everything else stays here: `CAgentSeat` sends an agent's
+keymap to the clients it controls, and `CAgentManager` refreshes a client's seat when a
+borrow changes its controller.
+
 ## Events
 
 Every socket2 event may carry a subject (`IPC::Socket2::SEvent::subject`): the window,
@@ -61,8 +102,9 @@ Some events are about an actor rather than an object, and name it directly: an a
 seat's focus changes and keyboard layouts (`activewindow`, `activelayout`), and a
 capture by an agent's client (`screencast`).
 
-Lua config events follow the same rule: the config is the human's, so it hears only about
-objects on the human desktop (`Actors::humanSees`).
+Lua config events follow the same rule (`Actors::eventAudience`): the config is the human's,
+so `CLuaEventHandler::dispatch` drops an event whose subject is on an agent's desktop. Lua
+window and workspace selectors resolve only to objects on the human desktop.
 
 The human's `hyprctl` requests (`clients`, `workspaces`, `monitors`) are an admin view
 and list everything. An agent's `hyprctl` sees only that agent's desktop.

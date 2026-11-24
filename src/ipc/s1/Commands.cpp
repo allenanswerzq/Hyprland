@@ -387,11 +387,16 @@ static std::string monitorsRequest(eHyprCtlOutputFormat format, std::string requ
     if (vars.size() == 2 && vars[1] == "all")
         allMonitors = true;
 
+    // The human's hyprctl is an admin view, so it lists the agents' monitors (src/actors) too.
+    auto monitors = allMonitors ? State::monitorState()->allMonitors() : State::monitorState()->renderMonitors();
+    if (allMonitors)
+        std::ranges::copy(State::monitorState()->agentMonitors(), std::back_inserter(monitors));
+
     std::string result = "";
     if (format == eHyprCtlOutputFormat::FORMAT_JSON) {
         result += "[";
 
-        for (auto const& m : allMonitors ? State::monitorState()->allMonitors() : State::monitorState()->monitors()) {
+        for (auto const& m : monitors) {
             result += CCommandFormatter::getMonitorData(m, format);
         }
 
@@ -399,7 +404,7 @@ static std::string monitorsRequest(eHyprCtlOutputFormat format, std::string requ
 
         result += "]";
     } else {
-        for (auto const& m : allMonitors ? State::monitorState()->allMonitors() : State::monitorState()->monitors()) {
+        for (auto const& m : monitors) {
             if (!m->m_output || m->m_id == -1)
                 continue;
 
@@ -791,7 +796,7 @@ static std::string layersRequest(eHyprCtlOutputFormat format, std::string reques
     if (format == eHyprCtlOutputFormat::FORMAT_JSON) {
         result += "{\n";
 
-        for (auto const& mon : State::monitorState()->monitors()) {
+        for (auto const& mon : State::monitorState()->renderMonitors()) {
             result += std::format(
                 R"#("{}": {{
     "levels": {{
@@ -844,7 +849,7 @@ static std::string layersRequest(eHyprCtlOutputFormat format, std::string reques
         result += "\n}\n";
 
     } else {
-        for (auto const& mon : State::monitorState()->monitors()) {
+        for (auto const& mon : State::monitorState()->renderMonitors()) {
             result += std::format("Monitor {}:\n", mon->m_name);
             int                                     layerLevel = 0;
             static const std::array<std::string, 4> levelNames = {"background", "bottom", "top", "overlay"};
@@ -2162,7 +2167,7 @@ void IPC::Socket1::refreshState() {
 
     g_pHyprRenderer->m_reloadScreenShader = true;
 
-    for (const auto& monitor : State::monitorState()->monitors()) {
+    for (const auto& monitor : State::monitorState()->renderMonitors()) {
         if (monitor)
             monitor->m_blurFBDirty = true;
     }
@@ -2183,6 +2188,6 @@ void IPC::Socket1::refreshState() {
         workspace->updateWindowDecos();
     }
 
-    for (const auto& monitor : State::monitorState()->monitors())
+    for (const auto& monitor : State::monitorState()->renderMonitors())
         g_pHyprRenderer->damageMonitor(monitor);
 }

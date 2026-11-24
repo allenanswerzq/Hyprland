@@ -10,6 +10,8 @@
 #include "../../../state/MonitorLayoutController.hpp"
 #include "../../../state/MonitorState.hpp"
 
+#include <algorithm>
+#include <iterator>
 #include <ranges>
 #include <hyprutils/utils/ScopeGuard.hpp>
 
@@ -135,7 +137,11 @@ void CMonitorRuleManager::ensureMonitorStatus() {
 
     Hyprutils::Utils::CScopeGuard x([this] { m_events.stateReloaded.emit(); });
 
-    for (auto const& m : State::monitorState()->allMonitors()) {
+    // Agent monitors (src/actors) take rules too, for example the human screen's mode.
+    auto everyMonitor = State::monitorState()->allMonitors();
+    std::ranges::copy(State::monitorState()->agentMonitors(), std::back_inserter(everyMonitor));
+
+    for (auto const& m : everyMonitor) {
         if (!m || !m->m_output || m->m_isUnsafeFallback)
             continue;
 

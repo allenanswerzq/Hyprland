@@ -13,19 +13,7 @@ using namespace State;
 
 static constexpr const long long READY_TIMEOUT_TO_UNSAFE_MS = 2000;
 
-// The fallback output keeps the human desktop alive when no real monitor is connected.
-// Agent monitors do not count: the human cannot see them.
-static std::vector<PHLMONITOR> humanMonitors() {
-    std::vector<PHLMONITOR> monitors;
-    for (const auto& m : State::monitorState()->monitors()) {
-        if (!Actors::isAgentMonitor(m))
-            monitors.emplace_back(m);
-    }
-
-    return monitors;
-}
-
-UP<CFallbackStateKeeper>& State::fallbackState() {
+UP<CFallbackStateKeeper>&        State::fallbackState() {
     static UP<CFallbackStateKeeper> p = makeUnique<CFallbackStateKeeper>();
     return p;
 }
@@ -38,14 +26,14 @@ CFallbackStateKeeper::~CFallbackStateKeeper() = default;
 
 void CFallbackStateKeeper::initSignals() {
     m_listeners.monitorRemoved = Event::bus()->m_events.monitor.removed.listen([this](PHLMONITOR removed) {
+        // Agent monitors are hidden from the human, so they never start or end the fallback.
         if (Actors::isAgentMonitor(removed))
             return;
 
-        const auto MONITORS = humanMonitors();
-        if (MONITORS.size() > 1)
+        if (State::monitorState()->monitors().size() > 1)
             return;
 
-        if (!MONITORS.empty() && MONITORS.front() != removed)
+        if (!State::monitorState()->monitors().empty() && State::monitorState()->monitors().front() != removed)
             return;
 
         if (removed == m_fallbackOutput)
@@ -89,8 +77,7 @@ void CFallbackStateKeeper::initSignals() {
         m_launchTimer = makeShared<CEventLoopTimer>(
             std::chrono::milliseconds(READY_TIMEOUT_TO_UNSAFE_MS),
             [this](SP<CEventLoopTimer> self, void* data) {
-                const auto MONITORS = humanMonitors();
-                if (!MONITORS.empty() && (MONITORS.size() > 1 || MONITORS.front() != m_fallbackOutput)) {
+                if (!State::monitorState()->monitors().empty() && (State::monitorState()->monitors().size() > 1 || State::monitorState()->monitors().front() != m_fallbackOutput)) {
                     LOG(Log::WARN, "[FallbackStateKeeper] Launch timeout of {}ms exceeded, but we have monitors?!", READY_TIMEOUT_TO_UNSAFE_MS);
                     m_launchTimer.reset();
                     return;

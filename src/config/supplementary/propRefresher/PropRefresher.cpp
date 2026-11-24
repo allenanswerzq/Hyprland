@@ -69,7 +69,7 @@ void CPropRefresher::refreshProp(const bool execdAsScheduled) {
 
     if (m_propsTripped & REFRESH_SCREEN_SHADER) {
         g_pHyprRenderer->m_reloadScreenShader = true;
-        for (auto const& m : State::monitorState()->monitors()) {
+        for (auto const& m : State::monitorState()->renderMonitors()) {
             if (!m)
                 continue;
 
@@ -80,7 +80,7 @@ void CPropRefresher::refreshProp(const bool execdAsScheduled) {
     if (m_propsTripped & REFRESH_BLUR_FB) {
         g_pHyprRenderer->refreshBlurProvider();
 
-        for (auto const& m : State::monitorState()->monitors()) {
+        for (auto const& m : State::monitorState()->renderMonitors()) {
             if (!m || m->m_transformedSize.x <= 0 || m->m_transformedSize.y <= 0)
                 continue;
 
@@ -111,7 +111,7 @@ void CPropRefresher::refreshProp(const bool execdAsScheduled) {
 
         Desktop::globalWindowController()->updateAllWindowsDecorations();
 
-        for (auto const& m : State::monitorState()->monitors()) {
+        for (auto const& m : State::monitorState()->renderMonitors()) {
             if (!m)
                 continue;
 
@@ -125,7 +125,7 @@ void CPropRefresher::refreshProp(const bool execdAsScheduled) {
         Config::monitorRuleMgr()->scheduleReload();
         Config::monitorRuleMgr()->ensureVRR();
 
-        for (const auto& m : State::monitorState()->monitors()) {
+        for (const auto& m : State::monitorState()->renderMonitors()) {
             if (!m)
                 continue;
 
@@ -139,7 +139,7 @@ void CPropRefresher::refreshProp(const bool execdAsScheduled) {
     if (m_propsTripped & REFRESH_LAYOUTS) {
         Layout::Supplementary::algoMatcher()->updateWorkspaceLayouts();
 
-        for (auto const& m : State::monitorState()->monitors()) {
+        for (auto const& m : State::monitorState()->renderMonitors()) {
             g_layoutManager->recalculateMonitor(m);
             g_pHyprRenderer->damageMonitor(m);
         }

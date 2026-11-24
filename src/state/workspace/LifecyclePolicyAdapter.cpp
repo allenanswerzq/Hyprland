@@ -56,9 +56,9 @@ class CHyprlandPolicyContext final : public IPolicyContext {
 
     std::vector<SMonitorSnapshot> monitors() const override {
         std::vector<SMonitorSnapshot> snapshots;
-        snapshots.reserve(State::monitorState()->monitors().size() + 1);
+        snapshots.reserve(State::monitorState()->renderMonitors().size() + 1);
 
-        for (const auto& monitor : State::monitorState()->monitors()) {
+        for (const auto& monitor : State::monitorState()->renderMonitors()) {
             if (Actors::actorOf(monitor) != m_actor)
                 continue;
 
@@ -185,8 +185,9 @@ class CHyprlandPolicyContext final : public IPolicyContext {
         if (m_eventMonitor && m_eventMonitor->m_name == address)
             return m_eventMonitor;
 
-        const auto MONITOR = std::ranges::find(State::monitorState()->monitors(), address, &Monitor::CMonitor::m_name);
-        if (MONITOR == State::monitorState()->monitors().end() || Actors::actorOf(*MONITOR) != m_actor)
+        const auto& MONITORS = State::monitorState()->renderMonitors();
+        const auto  MONITOR  = std::ranges::find(MONITORS, address, &Monitor::CMonitor::m_name);
+        if (MONITOR == MONITORS.end() || Actors::actorOf(*MONITOR) != m_actor)
             return nullptr;
 
         return *MONITOR;

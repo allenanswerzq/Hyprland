@@ -100,6 +100,7 @@ namespace Actors {
             CHyprSignalListener monitorAdded;
             CHyprSignalListener monitorRemoved;
             CHyprSignalListener clientDestroyed;
+            CHyprSignalListener windowCreated;
         } m_listeners;
     };
 }

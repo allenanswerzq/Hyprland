@@ -1,5 +1,4 @@
 #include "SessionLockManager.hpp"
-#include "../actors/Actors.hpp"
 #include "../Compositor.hpp"
 #include "../config/ConfigValue.hpp"
 #include "../protocols/FractionalScale.hpp"
@@ -101,7 +100,7 @@ void CSessionLockManager::onNewSessionLock(SP<CSessionLock> pLock) {
     Desktop::focusState()->rawSurfaceFocus(nullptr);
     g_pSeatManager->setGrab(nullptr);
 
-    const bool NOACTIVEMONS = std::ranges::all_of(State::monitorState()->monitors(), [](const auto& m) { return Actors::isAgentMonitor(m) || !m->m_enabled || !m->m_dpmsStatus; });
+    const bool NOACTIVEMONS = std::ranges::all_of(State::monitorState()->monitors(), [](const auto& m) { return !m->m_enabled || !m->m_dpmsStatus; });
 
     if (NOACTIVEMONS) {
         // Normally the locked event is sent after each output rendered a lock screen frame.
@@ -166,9 +165,8 @@ void CSessionLockManager::onLockscreenRenderedOnMonitor(uint64_t id) {
         return;
 
     m_sessionLock->lockedMonitors.emplace(id);
-    const bool LOCKED = std::ranges::all_of(State::monitorState()->monitors(), [this](auto m) {
-        return Actors::isAgentMonitor(m) || !m->m_enabled || !m->m_dpmsStatus || m_sessionLock->lockedMonitors.contains(m->m_id);
-    });
+    const bool LOCKED =
+        std::ranges::all_of(State::monitorState()->monitors(), [this](auto m) { return !m->m_enabled || !m->m_dpmsStatus || m_sessionLock->lockedMonitors.contains(m->m_id); });
 
     if (LOCKED && m_sessionLock->lock->good()) {
         removeSendLockedTimer();

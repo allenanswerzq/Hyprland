@@ -963,7 +963,7 @@ ActionResult Actions::setProp(const std::string& PROP, const std::string& VAL, s
     if (PROP == "no_vrr")
         Config::monitorRuleMgr()->ensureVRR();
 
-    for (auto const& m : State::monitorState()->monitors()) {
+    for (auto const& m : State::monitorState()->renderMonitors()) {
         if (m->m_activeWorkspace)
             m->m_activeWorkspace->space()->recalculate();
     }
@@ -1267,7 +1267,7 @@ ActionResult Actions::reloadConfig() {
 ActionResult Actions::forceRendererReload() {
     bool overAgain = false;
 
-    for (auto const& m : State::monitorState()->monitors()) {
+    for (auto const& m : State::monitorState()->renderMonitors()) {
         if (!m->m_output)
             continue;
 

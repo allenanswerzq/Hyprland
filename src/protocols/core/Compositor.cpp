@@ -779,7 +779,7 @@ bool CWLSurfaceResource::hasVisibleSubsurface() {
 
 bool CWLSurfaceResource::isTearing() {
     if (m_enteredOutputs.empty() && m_hlSurface) {
-        for (auto& m : State::monitorState()->monitors()) {
+        for (auto& m : State::monitorState()->renderMonitors()) {
             if (!m || !m->m_enabled)
                 continue;
 

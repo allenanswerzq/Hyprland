@@ -92,6 +92,7 @@ namespace Actors {
         void                               onModifiers(SP<IKeyboard> keyboard, const IKeyboard::SModifiersEvent& event);
         void                               onKeymap(SP<IKeyboard> keyboard);
         void                               useKeyboard(SP<IKeyboard> keyboard);
+        void                               sendKeymap(const SP<IKeyboard>& keyboard) const;
 
         void                               onMotion(uint32_t timeMs, const Vector2D& delta);
         void                               onMotionAbsolute(uint32_t timeMs, const Vector2D& absolute);

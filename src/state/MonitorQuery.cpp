@@ -91,6 +91,16 @@ PHLMONITOR CMonitorQuery::run() && {
         queryableMonitors.push_back(queryable);
     }
 
+    // Agent monitors (src/actors) are kept apart from the human's.
+    for (const auto& m : m_tracker.agentMonitors()) {
+        if ((ACTOR && Actors::actorOf(m) != *ACTOR) || (!m_includeDisabled && (!m->m_enabled || m->isMirror())))
+            continue;
+
+        auto queryable = dynamicPointerCast<Monitor::IMonitorQueryable>(m);
+        RASSERT(queryable, "CMonitor does not implement IMonitorQueryable");
+        queryableMonitors.push_back(queryable);
+    }
+
     CMonitorQueryCore core{queryableMonitors};
 
     if (m_id)

@@ -7,6 +7,8 @@
 #include "../debug/log/Logger.hpp"
 #include "../desktop/state/FocusState.hpp"
 #include "../desktop/view/window/Window.hpp"
+#include "../layout/LayoutManager.hpp"
+#include "../layout/target/Target.hpp"
 #include "../managers/SeatManager.hpp"
 #include "../output/Monitor.hpp"
 #include "../protocols/IdleInhibit.hpp"
@@ -22,6 +24,7 @@
 #include "../protocols/core/Compositor.hpp"
 #include "../protocols/core/Output.hpp"
 #include "../protocols/types/DataDevice.hpp"
+#include "../workspace/HLWorkspace.hpp"
 
 #include <wayland-server-protocol.h>
 
@@ -82,9 +85,26 @@ bool Actors::routeSurfaceFocus(const SP<CWLSurfaceResource>& surface) {
     return true;
 }
 
-void Actors::focusAgentWindow(ActorID agent, const PHLWINDOW& window) {
-    if (const auto SEAT = g_pAgentManager ? g_pAgentManager->seat(agent) : nullptr; SEAT)
-        SEAT->focusWindow(window);
+PHLWINDOW Actors::refocusAfterClose(const PHLWINDOW& window, const PHLWINDOW& nextInGroup) {
+    const auto AGENT = controllerOf(window);
+
+    // There is no human pointer on an agent monitor, so focus_on_close has nothing to hit
+    // test. The agent gets the next window of its workspace, as the layout orders them.
+    PHLWINDOW candidate = nextInGroup;
+    if (!candidate && window->m_workspace) {
+        if (const auto NEXT = g_layoutManager->getNextCandidate(window->m_workspace->space(), window->layoutTarget()); NEXT)
+            candidate = NEXT->window();
+    }
+
+    if (candidate && controllerOf(candidate) != AGENT)
+        candidate = nullptr;
+
+    LOG(Log::DEBUG, "Actors: {} closed a window, its new focused candidate is {}", nameOf(AGENT), candidate);
+
+    if (const auto SEAT = g_pAgentManager ? g_pAgentManager->seat(AGENT) : nullptr; SEAT)
+        SEAT->focusWindow(candidate);
+
+    return candidate;
 }
 
 bool Actors::isFocused(const PHLWINDOW& window) {

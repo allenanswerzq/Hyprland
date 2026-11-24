@@ -29,8 +29,9 @@ using namespace Config::Lua;
 using namespace Config::Lua::Bindings;
 
 /*
-    The config is the human's, so queries answer for the human's side only (Actors::humanSees).
-    Monitor selectors need no check here: they already resolve among the focused monitor's actor.
+    The config is the human's, so queries answer for the human's desktop only. Window and
+    workspace selectors filter in LuaBindingsInternal, monitor lists hold only human monitors,
+    and the human's focus is never on an agent window. The lists below filter themselves.
 */
 
 namespace {
@@ -140,7 +141,7 @@ static int hlGetWindows(lua_State* L) {
 
 static int hlGetActiveWindow(lua_State* L) {
     auto PWINDOW = Desktop::focusState()->window();
-    if (!PWINDOW || !Actors::humanSees(PWINDOW)) {
+    if (!PWINDOW) {
         lua_pushnil(L);
         return 1;
     }
@@ -151,7 +152,7 @@ static int hlGetActiveWindow(lua_State* L) {
 
 static int hlGetWindow(lua_State* L) {
     const auto PWINDOW = Internal::windowFromLuaSelectorOrObject(L, 1, "hl.get_window");
-    if (!PWINDOW || !Actors::humanSees(PWINDOW)) {
+    if (!PWINDOW) {
         lua_pushnil(L);
         return 1;
     }
@@ -187,7 +188,7 @@ static int hlGetWorkspaces(lua_State* L) {
 
 static int hlGetWorkspace(lua_State* L) {
     const auto PWORKSPACE = Internal::workspaceFromLuaSelectorOrObject(L, 1, "hl.get_workspace");
-    if (!PWORKSPACE || !Actors::humanSees(PWORKSPACE)) {
+    if (!PWORKSPACE) {
         lua_pushnil(L);
         return 1;
     }
@@ -242,9 +243,6 @@ static int hlGetMonitors(lua_State* L) {
     lua_newtable(L);
     int i = 1;
     for (const auto& mon : allMonitors ? State::monitorState()->allMonitors() : State::monitorState()->monitors()) {
-        if (!Actors::humanSees(mon))
-            continue;
-
         Objects::CLuaMonitor::push(L, mon);
         lua_rawseti(L, -2, i++);
     }
@@ -427,7 +425,7 @@ static int hlGetLayers(lua_State* L) {
     lua_newtable(L);
     int i = 1;
     for (const auto& mon : State::monitorState()->monitors()) {
-        if (!Actors::humanSees(mon) || (query.monitor && mon != *query.monitor))
+        if (query.monitor && mon != *query.monitor)
             continue;
 
         for (const auto& level : mon->m_layerSurfaceLayers) {

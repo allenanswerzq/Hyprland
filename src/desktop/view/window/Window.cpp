@@ -1184,20 +1184,12 @@ void CWindow::mapWindow() {
     static auto                         PINITIALWSTRACKING = CConfigValue<Config::INTEGER>("misc:initial_workspace_tracking");
     static auto                         PAUTOGROUP         = CConfigValue<Config::INTEGER>("group:auto_group");
 
-    // Placement follows the controller. An agent window opens on its agent's monitor, and a
-    // window of a borrowed client opens on the human's focused monitor.
-    const auto CONTROLLER = Actors::controllerOf(m_self.lock());
-    const bool AGENT      = Actors::isAgent(CONTROLLER);
-
-    PHLMONITOR PMONITOR;
-    if (AGENT)
-        PMONITOR = Actors::monitorOf(CONTROLLER);
-    else {
+    // An agent window opens on its agent's monitor (src/actors). A borrowed one is the human's.
+    const bool AGENT    = !Actors::humanControls(m_self.lock());
+    auto       PMONITOR = AGENT ? Actors::monitorOf(Actors::controllerOf(m_self.lock())) : Desktop::focusState()->monitor();
+    if (!AGENT && !Desktop::focusState()->monitor()) {
+        Desktop::focusState()->rawMonitorFocus(State::monitorState()->query().vec({}).run());
         PMONITOR = Desktop::focusState()->monitor();
-        if (!PMONITOR) {
-            Desktop::focusState()->rawMonitorFocus(State::monitorState()->query().vec({}).run());
-            PMONITOR = Desktop::focusState()->monitor();
-        }
     }
     if (!PMONITOR || (!PMONITOR->m_activeSpecialWorkspace && !PMONITOR->m_activeWorkspace)) {
         LOG(Log::ERR, "mapWindow: no valid monitor/workspace, aborting map for {:x}", (uintptr_t)this);
@@ -1265,13 +1257,6 @@ void CWindow::mapWindow() {
 
     if (TRAITS.suggestsNoInitialFocus)
         m_state |= WINDOW_STATE_NO_INITIAL_FOCUS;
-
-    // A new window of a borrowed client carries the borrow tags before the rules are read, so
-    // rules can match tag:borrowed.
-    if (Actors::isBorrowed(m_self.lock())) {
-        for (const auto& tag : Actors::borrowTags(owner()))
-            m_ruleApplicator->m_tagKeeper.applyTag("+" + tag);
-    }
 
     // window rules
     std::optional<Fullscreen::eFullscreenMode> requestedInternalFSMode, requestedClientFSMode;
@@ -1689,9 +1674,8 @@ void CWindow::unmapWindow() {
     const bool  IS_CURRENT_WINDOW_FS      = Fullscreen::controller()->isFullscreen(m_self.lock());
     const auto  CURRENT_WINDOW_FS_MODES   = Fullscreen::controller()->getFullscreenModes(m_self.lock());
     const bool  CURRENT_FS_LAYOUT_HANDLED = IS_CURRENT_WINDOW_FS ? Fullscreen::controller()->layoutManagedFS(m_self.lock()) : false;
-    // An agent window was focused if its agent seat focused it. The human focus never points at it.
-    const auto CONTROLLER  = Actors::controllerOf(m_self.lock());
-    const bool AGENT       = Actors::isAgent(CONTROLLER);
+    // Focused by the actor that controls it: an agent window has its agent seat's focus.
+    const bool AGENT       = !Actors::humanControls(m_self.lock());
     const bool WAS_FOCUSED = Actors::isFocused(m_self.lock());
     if (!wlSurface()->exists() || !m_isMapped) {
         LOG(Log::WARN, "{} unmapped without being mapped??", m_self.lock());
@@ -1768,21 +1752,7 @@ void CWindow::unmapWindow() {
 
     // refocus on a new window if needed
     if (wasLastWindow && AGENT) {
-        // The agent seat picks the next window on the agent's workspace. There is no human
-        // pointer on an agent monitor, so focus_on_close = 1 has nothing to hit test.
-        PHLWINDOW candidate = nextInGroup;
-        if (!candidate && m_workspace) {
-            if (const auto CAND = g_layoutManager->getNextCandidate(m_workspace->space(), layoutTarget()); CAND)
-                candidate = CAND->window();
-        }
-
-        if (candidate && Actors::controllerOf(candidate) != CONTROLLER)
-            candidate = nullptr;
-
-        LOG(Log::DEBUG, "On closed agent window, new focused candidate is {}", candidate);
-
-        Actors::focusAgentWindow(CONTROLLER, candidate);
-
+        const auto candidate = Actors::refocusAfterClose(m_self.lock(), nextInGroup);
         if (candidate && (*PEXITRETAINSFS == 1 || (candidate != nextInGroup && *PEXITRETAINSFS == 3) || (candidate == nextInGroup && *PEXITRETAINSFS == 2)) && IS_CURRENT_WINDOW_FS)
             Fullscreen::controller()->setFullscreenMode(candidate, CURRENT_WINDOW_FS_MODES.internal, std::nullopt, CURRENT_FS_LAYOUT_HANDLED);
     } else if (wasLastWindow) {

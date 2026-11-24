@@ -628,7 +628,7 @@ void CCompositor::cleanup() {
     Desktop::fadingOutState()->clear();
     Desktop::otherViewState()->clear();
 
-    for (auto const& m : State::monitorState()->monitors()) {
+    for (auto const& m : State::monitorState()->renderMonitors()) {
         g_pHyprOpenGL->destroyMonitorResources(m);
     }
 

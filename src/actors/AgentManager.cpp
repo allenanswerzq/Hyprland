@@ -16,6 +16,7 @@
 #include "../desktop/view/window/Window.hpp"
 #include "../desktop/view/window/WindowGroupMembership.hpp"
 #include "../desktop/view/window/WindowPresentation.hpp"
+#include "../devices/IKeyboard.hpp"
 #include "../event/EventBus.hpp"
 #include "../ipc/s2/S2.hpp"
 #include "../managers/SeatManager.hpp"
@@ -49,15 +50,11 @@ static void invalidateClipboardOffers(const wl_client* client) {
 }
 
 static PHLMONITOR humanMonitor() {
-    if (const auto FOCUSED = Desktop::focusState()->monitor(); FOCUSED && !isAgentMonitor(FOCUSED))
+    if (const auto FOCUSED = Desktop::focusState()->monitor())
         return FOCUSED;
 
-    for (const auto& m : State::monitorState()->monitors()) {
-        if (!isAgentMonitor(m))
-            return m;
-    }
-
-    return nullptr;
+    const auto& MONITORS = State::monitorState()->monitors();
+    return MONITORS.empty() ? nullptr : MONITORS.front();
 }
 
 static wl_client* clientOf(const PHLWINDOW& window) {
@@ -66,6 +63,31 @@ static wl_client* clientOf(const PHLWINDOW& window) {
 
     const auto SURFACE = window->wlSurface()->resource();
     return SURFACE ? SURFACE->client() : nullptr;
+}
+
+// After a client changed controller, its seat follows the other actor's devices: resend the
+// capabilities, keymap and repeat info.
+static void refreshSeat(const wl_client* client) {
+    if (!PROTO::seat)
+        return;
+
+    const auto CAPS     = PROTO::seat->capsForClient(client);
+    const auto KEYBOARD = keyboardFor(client);
+
+    for (const auto& seat : PROTO::seat->seatResourcesForClient(client)) {
+        seat->sendCapabilities(CAPS);
+
+        if (!KEYBOARD)
+            continue;
+
+        for (const auto& keyboard : seat->m_keyboards) {
+            if (!keyboard)
+                continue;
+
+            keyboard->sendKeymap(KEYBOARD);
+            keyboard->repeatInfo(KEYBOARD->m_repeatRate, KEYBOARD->m_repeatDelay);
+        }
+    }
 }
 
 // Window rules can match a borrowed window by tag:borrowed or by its agent's name.
@@ -118,6 +140,13 @@ CAgentManager::CAgentManager() {
 
     m_listeners.monitorAdded   = Event::bus()->m_events.monitor.added.listen([this](const PHLMONITOR& monitor) { onMonitorAdded(monitor); });
     m_listeners.monitorRemoved = Event::bus()->m_events.monitor.removed.listen([this](const PHLMONITOR& monitor) { onMonitorRemoved(monitor); });
+
+    // A new window of a borrowed client carries the borrow tags before its rules are read
+    // at map, so rules can match tag:borrowed.
+    m_listeners.windowCreated = Event::bus()->m_events.window.create.listen([](const PHLWINDOW& window) {
+        if (Actors::isBorrowed(window))
+            setBorrowTags(window, window->owner(), true);
+    });
 }
 
 CAgentManager::~CAgentManager() {
@@ -172,8 +201,8 @@ PHLMONITOR CAgentManager::monitorFor(ActorID actor) const {
     if (!isAgent(actor))
         return nullptr;
 
-    for (const auto& m : State::monitorState()->monitors()) {
-        if (m->m_actor == actor)
+    for (const auto& m : State::monitorState()->agentMonitors()) {
+        if (m->m_actor == actor && m->m_enabled)
             return m;
     }
 
@@ -265,7 +294,7 @@ std::expected<void, std::string> CAgentManager::borrow(PHLWINDOW window) {
         return std::unexpected("cannot change the controller of the window's client");
 
     invalidateClipboardOffers(CLIENT);
-    PROTO::seat->refreshClient(CLIENT);
+    refreshSeat(CLIENT);
 
     m_borrows.emplace_back(SBorrow{.client = CLIENT, .owner = *OWNER});
     for (const auto& m : State::monitorState()->monitors()) {
@@ -318,7 +347,7 @@ std::expected<void, std::string> CAgentManager::returnWindow(PHLWINDOW window) {
         return std::unexpected("cannot change the controller of the window's client");
 
     invalidateClipboardOffers(CLIENT);
-    PROTO::seat->refreshClient(CLIENT);
+    refreshSeat(CLIENT);
 
     const auto WINDOWS = windowsOf(CLIENT);
     moveClientWindows(CLIENT, WORKSPACE);

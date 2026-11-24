@@ -197,10 +197,6 @@ Actors::ActorID Actors::desktopOf(const PHLLS& layer) {
     return layer ? actorOf(layer->m_monitor.lock()) : HUMAN_ACTOR_ID;
 }
 
-bool Actors::humanSees(const PHLMONITOR& monitor) {
-    return desktopOf(monitor) == HUMAN_ACTOR_ID;
-}
-
 bool Actors::humanSees(const PHLWORKSPACE& workspace) {
     return desktopOf(workspace) == HUMAN_ACTOR_ID;
 }
@@ -209,17 +205,18 @@ bool Actors::humanSees(const PHLWINDOW& window) {
     return window && desktopOf(window) == HUMAN_ACTOR_ID;
 }
 
-bool Actors::humanSees(const PHLLS& layer) {
-    return layer && desktopOf(layer) == HUMAN_ACTOR_ID;
-}
-
 PHLMONITOR Actors::monitorOf(ActorID agent) {
     return g_pAgentManager ? g_pAgentManager->monitorFor(agent) : nullptr;
 }
 
+PHLMONITOR Actors::agentMonitorOf(const wl_client* client) {
+    const auto CONTROLLER = controllerOf(client);
+    return CONTROLLER && isAgent(*CONTROLLER) ? monitorOf(*CONTROLLER) : nullptr;
+}
+
 void Actors::placeAgentMonitors() {
-    for (const auto& m : State::monitorState()->monitors()) {
-        if (!isAgentMonitor(m))
+    for (const auto& m : State::monitorState()->agentMonitors()) {
+        if (!m->m_enabled)
             continue;
 
         const Vector2D POS = {AGENT_LAYOUT_ORIGIN_X + (m->m_actor - 1) * AGENT_LAYOUT_STRIDE, AGENT_LAYOUT_ORIGIN_Y};

@@ -1,6 +1,5 @@
 #include "PointerManager.hpp"
 #include "PointerTransformer.hpp"
-#include "../actors/Actors.hpp"
 #include "../Compositor.hpp"
 #include "../config/ConfigValue.hpp"
 #include "../config/shared/actions/ConfigActions.hpp"
@@ -931,14 +930,7 @@ void CPointerManager::move(const Vector2D& deltaLogical) {
 }
 
 void CPointerManager::warpAbsolute(Vector2D abs, SP<IHID> dev, WP<Aquamarine::IOutput> output) {
-    // The human pointer only moves over human monitors.
-    std::vector<PHLMONITOR> humanMonitors;
-    for (const auto& m : State::monitorState()->monitors()) {
-        if (!Actors::isAgentMonitor(m))
-            humanMonitors.emplace_back(m);
-    }
-
-    if (!dev || humanMonitors.empty())
+    if (!dev || State::monitorState()->monitors().empty())
         return;
 
     if (!std::isnan(abs.x))
@@ -947,7 +939,7 @@ void CPointerManager::warpAbsolute(Vector2D abs, SP<IHID> dev, WP<Aquamarine::IO
         abs.y = std::clamp(abs.y, 0.0, 1.0);
 
     // find x and y size of the entire space
-    const auto& MONITORS = humanMonitors;
+    const auto& MONITORS = State::monitorState()->monitors();
     Vector2D    topLeft = MONITORS.at(0)->m_position, bottomRight = MONITORS.at(0)->m_position + MONITORS.at(0)->m_size;
     for (size_t i = 1; i < MONITORS.size(); ++i) {
         const auto EXTENT = MONITORS[i]->logicalBox().extent();
@@ -1038,7 +1030,7 @@ void CPointerManager::warpAbsolute(Vector2D abs, SP<IHID> dev, WP<Aquamarine::IO
 void CPointerManager::onMonitorLayoutChange() {
     m_currentMonitorLayout.monitorBoxes.clear();
     for (auto const& m : State::monitorState()->monitors()) {
-        if (m->isMirror() || !m->m_enabled || !m->m_output || Actors::isAgentMonitor(m))
+        if (m->isMirror() || !m->m_enabled || !m->m_output)
             continue;
 
         m_currentMonitorLayout.monitorBoxes.emplace_back(m->m_position, m->m_size);

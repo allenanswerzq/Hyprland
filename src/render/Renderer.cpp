@@ -321,7 +321,7 @@ bool IHyprRenderer::shouldRenderWindow(PHLWINDOW pWindow) {
     if (PWORKSPACE && PWORKSPACE->visible())
         return true;
 
-    for (auto const& m : State::monitorState()->monitors()) {
+    for (auto const& m : State::monitorState()->renderMonitors()) {
         if (PWORKSPACE && PWORKSPACE->m_monitor == m && (PWORKSPACE->m_renderOffset->isBeingAnimated() || PWORKSPACE->m_alpha->isBeingAnimated()))
             return true;
 
@@ -1641,7 +1641,7 @@ void IHyprRenderer::requestBackgroundResource() {
 
     // doesn't have to be ASP as it's passed
     SP<CMainLoopExecutor> executor = makeShared<CMainLoopExecutor>([this] {
-        for (const auto& m : State::monitorState()->monitors()) {
+        for (const auto& m : State::monitorState()->renderMonitors()) {
             damageMonitor(m);
         }
     });
@@ -3131,7 +3131,7 @@ void IHyprRenderer::damageSurface(SP<CWLSurfaceResource> pSurface, double x, dou
 
     // hack: schedule frame events
     if (!pSurface->m_current.callbacks.empty() && SURFACE_BOX && !SURFACE_BOX->empty()) {
-        for (auto const& m : State::monitorState()->monitors()) {
+        for (auto const& m : State::monitorState()->renderMonitors()) {
             if (!m->m_output)
                 continue;
 
@@ -3159,7 +3159,7 @@ void IHyprRenderer::damageSurface(SP<CWLSurfaceResource> pSurface, double x, dou
     }
     const auto EXTENTS = damageBox.getExtents().translate(position);
 
-    for (auto const& m : State::monitorState()->monitors()) {
+    for (auto const& m : State::monitorState()->renderMonitors()) {
         if (!m->m_output)
             continue;
         if (!EXTENTS.overlaps(m->logicalBox()))
@@ -3182,7 +3182,7 @@ void IHyprRenderer::damageWindow(PHLWINDOW pWindow, bool forceFull) {
     windowBox.translate(pWindow->presentation().floatingOffset());
     windowBox = pWindow->effects().transformBoxForDamage(windowBox);
 
-    for (auto const& m : State::monitorState()->monitors()) {
+    for (auto const& m : State::monitorState()->renderMonitors()) {
         if (forceFull || shouldRenderWindow(pWindow, m)) { // only damage if window is rendered on monitor
             CBox fixedDamageBox = {windowBox.x - m->m_position.x, windowBox.y - m->m_position.y, windowBox.width, windowBox.height};
             fixedDamageBox.scale(m->m_scale).round();
@@ -3210,7 +3210,7 @@ void IHyprRenderer::damageMonitor(PHLMONITOR pMonitor) {
 }
 
 void IHyprRenderer::damageBox(const CBox& box, bool skipFrameSchedule) {
-    for (auto const& m : State::monitorState()->monitors()) {
+    for (auto const& m : State::monitorState()->renderMonitors()) {
         if (m->isMirror())
             continue; // don't damage mirrors traditionally
 

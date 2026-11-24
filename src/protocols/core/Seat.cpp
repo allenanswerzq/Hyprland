@@ -646,39 +646,6 @@ std::vector<SP<CWLSeatResource>> CWLSeatProtocol::seatResourcesForClient(const w
     return resources;
 }
 
-void CWLSeatProtocol::refreshClient(const wl_client* client) {
-    const auto CAPS     = capsForClient(client);
-    const auto KEYBOARD = Actors::keyboardFor(client);
-
-    for (const auto& seat : seatResourcesForClient(client)) {
-        seat->sendCapabilities(CAPS);
-
-        if (!KEYBOARD)
-            continue;
-
-        for (const auto& keyboard : seat->m_keyboards) {
-            if (!keyboard)
-                continue;
-
-            keyboard->sendKeymap(KEYBOARD);
-            keyboard->repeatInfo(KEYBOARD->m_repeatRate, KEYBOARD->m_repeatDelay);
-        }
-    }
-}
-
-void CWLSeatProtocol::updateAgentKeymap(Actors::ActorID actor, SP<IKeyboard> keyboard) {
-    if (!keyboard)
-        return;
-
-    for (const auto& k : m_keyboards) {
-        if (!k->m_owner || Actors::controllerOf(k->m_owner->client()) != actor)
-            continue;
-
-        k->sendKeymap(keyboard);
-        k->repeatInfo(keyboard->m_repeatRate, keyboard->m_repeatDelay);
-    }
-}
-
 SP<CWLSeatResource> CWLSeatProtocol::seatResourceForClient(wl_client* client) {
     for (auto const& r : m_seatResources) {
         if (r->client() == client)

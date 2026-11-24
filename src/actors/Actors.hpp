@@ -114,13 +114,14 @@ namespace Actors {
     ActorID desktopOf(const PHLMONITOR& monitor);
     ActorID desktopOf(const PHLLS& layer);
 
-    bool    humanSees(const PHLMONITOR& monitor);
     bool    humanSees(const PHLWORKSPACE& workspace);
     bool    humanSees(const PHLWINDOW& window);
-    bool    humanSees(const PHLLS& layer);
 
     // The agent's monitor, or nullptr for the human or an agent without one.
     PHLMONITOR monitorOf(ActorID agent);
+    // Where a surface of client opens if it names no monitor: the monitor of the agent that
+    // controls the client, or nullptr for a client the human controls.
+    PHLMONITOR agentMonitorOf(const wl_client* client);
 
     // Agent monitors sit far away from the human layout, so "which monitor is at this point"
     // never mixes human and agent space. Called after the human monitors were arranged.
@@ -149,8 +150,9 @@ namespace Actors {
     bool routeWindowFocus(const PHLWINDOW& window, Desktop::eFocusReason reason, const SP<CWLSurfaceResource>& surface);
     // True if the surface belongs to an agent seat, which then focused it.
     bool routeSurfaceFocus(const SP<CWLSurfaceResource>& surface);
-    // Gives an agent's keyboard focus to window, or clears it.
-    void focusAgentWindow(ActorID agent, const PHLWINDOW& window);
+    // An agent window was closed while focused. Focuses the next window of the agent's
+    // workspace on its agent seat, and returns it (nullptr if there is none).
+    PHLWINDOW refocusAfterClose(const PHLWINDOW& window, const PHLWINDOW& nextInGroup);
 
     // Whether the window is focused by the actor that controls it.
     bool isFocused(const PHLWINDOW& window);

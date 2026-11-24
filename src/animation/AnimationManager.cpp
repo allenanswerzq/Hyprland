@@ -348,7 +348,7 @@ void CHyprAnimationManager::frameTick() {
     if (!MANUALTICK && !shouldTickForNext())
         return;
 
-    if UNLIKELY (!g_pCompositor->m_sessionActive || !std::ranges::any_of(State::monitorState()->monitors(), [](const auto& mon) { return mon->m_enabled && mon->m_output; }))
+    if UNLIKELY (!g_pCompositor->m_sessionActive || !std::ranges::any_of(State::monitorState()->renderMonitors(), [](const auto& mon) { return mon->m_enabled && mon->m_output; }))
         return;
 
     if (!m_lastTickValid || m_lastTickTimer.getMillis() >= 1.0f) {

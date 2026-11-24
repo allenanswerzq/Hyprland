@@ -1,6 +1,7 @@
 #include "AgentSeat.hpp"
 
 #include "Actors.hpp"
+#include "ActorRegistry.hpp"
 #include "AgentManager.hpp"
 
 #include "../config/ConfigValue.hpp"
@@ -160,7 +161,24 @@ void CAgentSeat::useKeyboard(SP<IKeyboard> keyboard) {
         return;
 
     m_activeKeyboard = keyboard;
-    PROTO::seat->updateAgentKeymap(m_actor, keyboard);
+    sendKeymap(keyboard);
+}
+
+// Sends the keymap and repeat info to every wl_keyboard of the clients this agent controls.
+void CAgentSeat::sendKeymap(const SP<IKeyboard>& keyboard) const {
+    if (!keyboard || !g_pActorRegistry)
+        return;
+
+    // A client the agent owns but the human borrowed follows the human's keyboard instead.
+    for (const auto CLIENT : g_pActorRegistry->clientsOwnedBy(m_actor)) {
+        if (controllerOf(CLIENT) != m_actor)
+            continue;
+
+        forEachKeyboard(CLIENT, [&](const SP<CWLKeyboardResource>& k) {
+            k->sendKeymap(keyboard);
+            k->repeatInfo(keyboard->m_repeatRate, keyboard->m_repeatDelay);
+        });
+    }
 }
 
 void CAgentSeat::onKey(SP<IKeyboard> keyboard, const IKeyboard::SKeyEvent& event) {
@@ -195,7 +213,7 @@ void CAgentSeat::onKeymap(SP<IKeyboard> keyboard) {
 
     // The keyboard that just uploaded a keymap is the one the agent is about to type with.
     m_activeKeyboard = keyboard;
-    PROTO::seat->updateAgentKeymap(m_actor, keyboard);
+    sendKeymap(keyboard);
 
     IPC::Socket2::sock()->postEvent({.event = "activelayout", .data = std::format("{},{}", keyboard->m_hlName, keyboard->getActiveLayout()), .subject = m_actor});
 }

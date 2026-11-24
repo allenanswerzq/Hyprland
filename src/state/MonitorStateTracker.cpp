@@ -10,5 +10,5 @@ CMonitorQuery IMonitorStateTracker::query() const {
 }
 
 bool IMonitorStateTracker::contains(PHLMONITOR monitor) const {
-    return std::ranges::contains(allMonitors(), monitor);
+    return std::ranges::contains(allMonitors(), monitor) || std::ranges::contains(agentMonitors(), monitor);
 }

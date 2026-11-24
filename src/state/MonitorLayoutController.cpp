@@ -16,7 +16,6 @@
 #include "../render/Renderer.hpp"
 #include "../xwayland/XWayland.hpp"
 
-#include <ranges>
 #include <vector>
 
 using namespace State;
@@ -43,9 +42,6 @@ void CMonitorLayoutController::checkOverlapsAndNotify() const {
     CRegion monitorRegion;
 
     for (const auto& m : State::monitorState()->monitors()) {
-        if (Actors::isAgentMonitor(m))
-            continue;
-
         if (!monitorRegion.copy().intersect(m->logicalBox()).empty()) {
             LOG(Log::ERR, "Monitor {}: detected overlap with layout", m->m_name);
             Notification::overlay()->addNotification(I18n::i18nEngine()->localize(I18n::TXT_KEY_NOTIF_INVALID_MONITOR_LAYOUT, {{"name", m->m_name}}), CHyprColor{}, 15000,
@@ -68,10 +64,6 @@ void CMonitorLayoutController::arrange() const {
     std::vector<SP<Monitor::IMonitorArrangeable>> arrangeableMonitors;
     arrangeableMonitors.reserve(State::monitorState()->monitors().size());
     for (const auto& m : State::monitorState()->monitors()) {
-        // Agent monitors are not part of the human layout, see below.
-        if (Actors::isAgentMonitor(m))
-            continue;
-
         auto arrangeable = dynamicPointerCast<Monitor::IMonitorArrangeable>(m);
         RASSERT(arrangeable, "CMonitor does not implement IMonitorArrangeable");
         arrangeableMonitors.push_back(arrangeable);
@@ -80,9 +72,10 @@ void CMonitorLayoutController::arrange() const {
     LOG(Log::DEBUG, "arrangeMonitors: {} to arrange", arrangeableMonitors.size());
     State::monitorPositionController()->arrange(arrangeableMonitors, *PXWLFORCESCALEZERO);
 
+    // Agent monitors sit outside the human layout, placed by the actors module.
     Actors::placeAgentMonitors();
 
-    for (const auto& m : State::monitorState()->monitors()) {
+    for (const auto& m : State::monitorState()->renderMonitors()) {
         g_pHyprRenderer->arrangeLayersForMonitor(m->m_id);
     }
 
@@ -103,7 +96,7 @@ void CMonitorLayoutController::arrange() const {
 
 bool CMonitorLayoutController::isPointOnAnyMonitor(const Vector2D& point) {
     return std::ranges::any_of(State::monitorState()->monitors(), [&](const PHLMONITOR& m) {
-        return !Actors::isAgentMonitor(m) && VECINRECT(point, m->m_position.x, m->m_position.y, m->m_size.x + m->m_position.x, m->m_size.y + m->m_position.y);
+        return VECINRECT(point, m->m_position.x, m->m_position.y, m->m_size.x + m->m_position.x, m->m_size.y + m->m_position.y);
     });
 }
 
@@ -123,11 +116,10 @@ std::optional<CBox> CMonitorLayoutController::calculateUnifiedX11WorkArea() cons
     static auto PXWLFORCESCALEZERO = CConfigValue<Config::INTEGER>("xwayland:force_zero_scaling");
     // We more than likely won't be able to calculate one
     // and even if we could this is minor
-    auto HUMAN_MONITORS = State::monitorState()->monitors() | std::views::filter([](const PHLMONITOR& m) { return !Actors::isAgentMonitor(m); });
-    if (std::ranges::distance(HUMAN_MONITORS) != 1)
+    if (State::monitorState()->monitors().size() > 1 || State::monitorState()->monitors().empty())
         return std::nullopt;
 
-    const auto M = *HUMAN_MONITORS.begin();
+    const auto M = State::monitorState()->monitors().front();
 
     // we ignore monitor->m_position on purpose
     CBox box = M->logicalBoxMinusReserved().translate(-M->m_position);

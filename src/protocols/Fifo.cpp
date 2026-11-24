@@ -92,7 +92,7 @@ CFifoResource::CFifoResource(UP<CWpFifoV1>&& resource_, SP<CWLSurfaceResource> s
                         const auto& window        = view->type() == Desktop::View::VIEW_TYPE_WINDOW ? dynamicPointerCast<Desktop::View::CWindow>(view) : nullptr;
                         const auto  alphaModifier = dynamicPointerCast<Desktop::View::IAlphaModifiable>(view);
                         const bool  isVisible     = (view->mapped() && view->acceptsInput() && (!alphaModifier || alphaModifier->alphaNonZero()) && //
-                                                     (!window || std::ranges::any_of(State::monitorState()->monitors(), [window](const auto& mon) {
+                                                     (!window || std::ranges::any_of(State::monitorState()->renderMonitors(), [window](const auto& mon) {
                                                     return g_pHyprRenderer->shouldRenderWindow(window, mon);
                                                      })));
                         if (isVisible)
@@ -132,7 +132,7 @@ void CFifoResource::presented() {
 bool CFifoResource::checkMonitors() {
     bool allowFifo = false;
     if (m_surface->m_enteredOutputs.empty() && m_surface->m_hlSurface) {
-        for (auto& m : State::monitorState()->monitors()) {
+        for (auto& m : State::monitorState()->renderMonitors()) {
             if (!m || !m->m_enabled)
                 continue;
 
