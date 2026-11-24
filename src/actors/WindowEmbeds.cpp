@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "../desktop/view/window/Window.hpp"
+#include "../desktop/state/GlobalWindowController.hpp"
 #include "../event/EventBus.hpp"
 #include "../render/Renderer.hpp"
 
@@ -39,8 +40,9 @@ std::expected<void, std::string> CWindowEmbeds::embed(PHLWINDOW window, PHLWINDO
     m_embeds.emplace_back(SEmbed{.window = window, .host = host, .box = box, .source = source});
     damageBox(m_embeds.back());
 
-    // The embedded window renders for the host's monitor from now on.
+    // The embedded window renders for the host's monitor from now on, and is seen when the host is.
     window->updateSurfaceScaleTransformDetails(true);
+    Desktop::globalWindowController()->updateSuspendedState(window);
     return {};
 }
 
@@ -52,6 +54,7 @@ std::expected<void, std::string> CWindowEmbeds::unembed(PHLWINDOW window) {
     damageBox(*IT);
     m_embeds.erase(IT);
     window->updateSurfaceScaleTransformDetails(true);
+    Desktop::globalWindowController()->updateSuspendedState(window);
     return {};
 }
 
@@ -102,8 +105,9 @@ void CWindowEmbeds::onWindowClosed(const PHLWINDOW& window) {
         return true;
     });
 
-    // Windows whose host closed render for their own monitor again.
+    // Windows whose host closed render for their own monitor again, and are seen only there.
     for (const auto& w : released) {
         w->updateSurfaceScaleTransformDetails(true);
+        Desktop::globalWindowController()->updateSuspendedState(w);
     }
 }

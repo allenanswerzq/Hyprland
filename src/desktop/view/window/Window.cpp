@@ -639,6 +639,13 @@ void CWindow::setHidden(bool hidden) {
         Desktop::focusState()->window().reset();
 
     setSuspended(hidden);
+
+    // The windows embedded in this one are seen only while it is.
+    if (g_pWindowEmbeds) {
+        for (const auto& embed : g_pWindowEmbeds->embeddedIn(m_self.lock())) {
+            Desktop::globalWindowController()->updateSuspendedState(embed.window.lock());
+        }
+    }
 }
 
 bool CWindow::isHidden() const {
