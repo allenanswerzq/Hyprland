@@ -186,6 +186,10 @@ namespace Actors {
     // Whether an xdg_activation token from issuer may activate window. Tokens never cross
     // actors: an agent cannot raise a human window, and the other way around.
     bool mayActivate(const wl_client* issuer, const PHLWINDOW& window);
+    // Whether a client may learn about a monitor or workspace (ext-workspace): only those on the
+    // desktop of the actor that owns the client.
+    bool clientSees(const wl_client* client, const PHLMONITOR& monitor);
+    bool clientSees(const wl_client* client, const PHLWORKSPACE& workspace);
 
     // wl_output resources of a client for a monitor, including borrow proxies.
     std::vector<SP<CWLOutputResource>> outputResourcesFor(const PHLMONITOR& monitor, wl_client* client);

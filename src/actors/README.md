@@ -119,3 +119,7 @@ visible to human clients only.
 A borrowed client still belongs to its agent, so it cannot see the human monitors. While
 borrowed, it gets one proxy `wl_output` per human monitor whose audience is that client
 alone. The proxies go away when the client is returned.
+
+The ext-workspace protocol, which lets bars list workspaces, tells each client only about the
+monitors and workspaces on its owner's desktop (`Actors::clientSees`). A human bar never
+lists agent workspaces, and an agent's client sees only its agent's.

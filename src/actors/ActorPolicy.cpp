@@ -280,6 +280,14 @@ bool Actors::mayCapture(const wl_client* client, const PHLMONITOR& monitor) {
     return true;
 }
 
+bool Actors::clientSees(const wl_client* client, const PHLMONITOR& monitor) {
+    return ownerOf(client) == desktopOf(monitor);
+}
+
+bool Actors::clientSees(const wl_client* client, const PHLWORKSPACE& workspace) {
+    return ownerOf(client) == desktopOf(workspace);
+}
+
 bool Actors::mayActivate(const wl_client* issuer, const PHLWINDOW& window) {
     const auto ISSUER = issuer ? controllerOf(issuer) : std::optional<ActorID>{HUMAN_ACTOR_ID};
     if (ISSUER && *ISSUER == controllerOf(window))
