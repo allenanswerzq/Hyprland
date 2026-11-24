@@ -32,7 +32,10 @@ jobs:
       - name: Install Omarchy's packages
         run: |
           echo 'Server = https://stable-mirror.omarchy.org/$repo/os/$arch' > /etc/pacman.d/mirrorlist
-          pacman -Syyuu --noconfirm
+          # The image can be newer than the mirror. Arch's OpenSSL 4 moved
+          # OpenSSL 3's libraries to a package openssl-3, which the mirror's
+          # openssl 3 then finds in its way; the mirror's take their place.
+          pacman -Syyuu --noconfirm --overwrite /usr/lib/libcrypto.so.3 --overwrite /usr/lib/libssl.so.3
           # Arch's hyprland brings the libraries Hyprland runs with; the rest
           # are what Arch builds it with.
           pacman -S --noconfirm --needed git github-cli patchelf hyprland \
