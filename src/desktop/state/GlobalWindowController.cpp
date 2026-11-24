@@ -35,14 +35,18 @@ void CGlobalWindowController::updateSuspendedStates() const {
     }
 }
 
+static bool shownOnItsWorkspace(const PHLWINDOW& window) {
+    return !window->isHidden() && window->m_workspace && window->m_workspace->visible();
+}
+
 void CGlobalWindowController::updateSuspendedState(const PHLWINDOW& window) const {
     if (!window || !window->mapped())
         return;
 
-    // A window embedded in another one (actors/WindowEmbeds) is seen wherever its host is.
-    const auto HOST  = g_pWindowEmbeds ? g_pWindowEmbeds->hostOf(window) : nullptr;
-    const auto SHOWN = HOST ? HOST : window;
-    window->setSuspended(SHOWN->isHidden() || !SHOWN->m_workspace || !SHOWN->m_workspace->visible());
+    // A window embedded in another one (actors/WindowEmbeds) is seen on its own workspace, and
+    // also wherever its host is seen.
+    const auto HOST = g_pWindowEmbeds ? g_pWindowEmbeds->hostOf(window) : nullptr;
+    window->setSuspended(!shownOnItsWorkspace(window) && !(HOST && shownOnItsWorkspace(HOST)));
 }
 
 void CGlobalWindowController::moveWindowToWorkspace(PHLWINDOW pWindow, PHLWORKSPACE pWorkspace) const {
