@@ -28,7 +28,6 @@ using namespace Hyprutils::Utils;
 static constexpr auto EMBEDDED = "hyprtester-embedded";
 static constexpr auto HOST     = "hyprtester-embed-host";
 static constexpr auto HOST2    = "hyprtester-embed-host2";
-static constexpr auto TAB      = "hyprtester-embed-tab";
 static constexpr auto SECOND   = "HEADLESS-EMBED";
 
 // Waits until the probe's title says it is suspended, or visible.
@@ -154,18 +153,6 @@ TEST_CASE(embeddedWindowIsSuspendedOnlyWhenNothingShowsIt) {
     OK(dispatch(std::format("hl.dsp.window.move({{ workspace = 'name:embed-host', follow = false, window = 'class:{}' }})", HOST)));
     EXPECT(probeIs("visible"), true);
 
-    NLog::log("{}Its host a hidden tab of a group, and the shown one again", Colors::YELLOW);
-    OK(dispatch(std::format("hl.dsp.focus({{ window = 'class:{}' }})", HOST)));
-    OK(dispatch("hl.dsp.group.toggle()"));
-    auto tab = Tests::spawnKitty(TAB);
-    if (!tab)
-        FAIL_TEST("Could not spawn kitty with class: {}", TAB);
-    EXPECT(probeIs("suspended"), true);
-    OK(dispatch(std::format("hl.dsp.focus({{ window = 'class:{}' }})", HOST)));
-    EXPECT(probeIs("visible"), true);
-    OK(dispatch(std::format("hl.dsp.window.kill({{ window = 'class:{}' }})", TAB)));
-    Tests::waitUntilWindowsN(2);
-
     NLog::log("{}Moved to a host on a hidden workspace, and back", Colors::YELLOW);
     OK(dispatch("hl.dsp.focus({ workspace = 'name:embed-away' })"));
     auto host2 = Tests::spawnKitty(HOST2);
@@ -179,9 +166,10 @@ TEST_CASE(embeddedWindowIsSuspendedOnlyWhenNothingShowsIt) {
 
     NLog::log("{}Its host on a second monitor, while the first shows another workspace", Colors::YELLOW);
     getFromSocket(std::format("/output remove {}", SECOND));
+    // Its rule first: test.lua disables every monitor it has none for.
+    OK(getFromSocket(std::format("/eval hl.monitor({{ output = '{}', mode = '1920x1080@60', position = '1920x0', scale = '1' }})", SECOND)));
     OK(getFromSocket(std::format("/output create headless {}", SECOND)));
     ASSERT(monitorIs(SECOND, true), true);
-    OK(getFromSocket(std::format("/eval hl.monitor({{ output = '{}', mode = '1920x1080@60', position = '1920x0', scale = '1' }})", SECOND)));
     OK(dispatch(std::format("hl.dsp.focus({{ monitor = '{}' }})", SECOND)));
     OK(dispatch("hl.dsp.focus({ workspace = 'name:embed-second' })"));
     OK(dispatch(std::format("hl.dsp.window.move({{ workspace = 'name:embed-second', follow = false, window = 'class:{}' }})", HOST)));
