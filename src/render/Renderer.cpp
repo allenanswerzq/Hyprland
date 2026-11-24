@@ -1,4 +1,6 @@
 #include "Renderer.hpp"
+#include "../actors/Actors.hpp"
+#include "../embed/WindowEmbeds.hpp"
 #include "../desktop/view/Subsurface.hpp"
 #include "SurfaceDamage.hpp"
 #include "../Compositor.hpp"
@@ -206,6 +208,10 @@ IHyprRenderer::IHyprRenderer() {
                 if (!w->wlSurface() || !w->wlSurface()->resource() || shouldRenderWindow(w.lock()))
                     continue;
 
+                // An embedded window shown in its host gets its frames from the host's monitor.
+                if (const auto HOST = Embed::hostOf(w.lock()); HOST && shouldRenderWindow(HOST))
+                    continue;
+
                 w->wlSurface()->resource()->breadthfirst(
                     [](SP<CWLSurfaceResource> surf, const Vector2D& offset, void* data) {
                         surf->m_stateQueue.unlockFirst(LOCK_REASON_FENCE | LOCK_REASON_FIFO | LOCK_REASON_TIMER);
@@ -315,7 +321,7 @@ bool IHyprRenderer::shouldRenderWindow(PHLWINDOW pWindow) {
     if (PWORKSPACE && PWORKSPACE->visible())
         return true;
 
-    for (auto const& m : State::monitorState()->monitors()) {
+    for (auto const& m : State::monitorState()->renderMonitors()) {
         if (PWORKSPACE && PWORKSPACE->m_monitor == m && (PWORKSPACE->m_renderOffset->isBeingAnimated() || PWORKSPACE->m_alpha->isBeingAnimated()))
             return true;
 
@@ -798,6 +804,8 @@ void IHyprRenderer::renderWindow(CRenderContext& ctx, PHLWINDOW pWindow, PHLMONI
 
         renderdata.useNearestNeighbor = false;
 
+        renderEmbeddedWindows(ctx, pWindow, renderdata);
+
         if (renderdata.decorate) {
             for (auto const& wd : pWindow->presentation().decorations()) {
                 if (wd->getDecorationLayer() != DECORATION_LAYER_OVER)
@@ -1036,6 +1044,57 @@ SP<ITexture> IHyprRenderer::createTexture(const SP<Aquamarine::IBuffer> buffer, 
     return tex;
 }
 
+// Draws the windows embedded in host (src/embed) over it, each clipped to its box.
+// hostData is how the host's own surfaces were drawn: its position, monitor and alpha.
+void IHyprRenderer::renderEmbeddedWindows(CRenderContext& ctx, PHLWINDOW host, const CSurfacePassElement::SRenderData& hostData) {
+    const auto PMONITOR = hostData.pMonitor.lock();
+    if (!PMONITOR)
+        return;
+
+    for (const auto& embed : Embed::embeddedIn(host)) {
+        const auto WINDOW = embed.window.lock();
+        if (!WINDOW || !WINDOW->mapped() || !WINDOW->wlSurface() || !WINDOW->wlSurface()->resource())
+            continue;
+
+        const auto ORIGIN = hostData.pos + embed.box.pos();
+        auto       clip   = CBox{ORIGIN, embed.box.size()}.translate(-PMONITOR->m_position).scale(PMONITOR->m_scale).round();
+        if (!hostData.clipBox.empty())
+            clip = clip.intersection(hostData.clipBox);
+        if (clip.empty())
+            continue;
+
+        const auto                       SIZE = WINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+
+        CSurfacePassElement::SRenderData data = hostData;
+        data.pWindow                          = WINDOW;
+        data.pos                              = ORIGIN - embed.source;
+        data.w                                = SIZE.x;
+        data.h                                = SIZE.y;
+        data.clipBox                          = clip;
+        data.blur                             = false;
+        data.decorate                         = false;
+        data.dontRound                        = true;
+        data.rounding                         = 0;
+        data.popup                            = false;
+        data.squishOversized                  = true;
+        data.surfaceCounter                   = 0;
+
+        WINDOW->wlSurface()->resource()->breadthfirst(
+            [this, &ctx, &data, &WINDOW](SP<CWLSurfaceResource> s, const Vector2D& offset, void*) {
+                if (!s->m_current.texture || s->m_current.size.x < 1 || s->m_current.size.y < 1)
+                    return;
+
+                data.localPos    = offset;
+                data.texture     = s->m_current.texture;
+                data.surface     = s;
+                data.mainSurface = s == WINDOW->wlSurface()->resource();
+                addPassElement(ctx, makeUnique<CSurfacePassElement>(data));
+                data.surfaceCounter++;
+            },
+            nullptr);
+    }
+}
+
 void IHyprRenderer::renderLayer(CRenderContext& ctx, PHLLS pLayer, PHLMONITOR pMonitor, const Time::steady_tp& time, bool popups, bool lockscreen, bool workspaceScene) {
     if (!pLayer)
         return;
@@ -1231,7 +1290,8 @@ void IHyprRenderer::renderAllClientsForWorkspace(CRenderContext& ctx, PHLMONITOR
     if (mode != eSceneMode::MONITOR && !pWorkspace)
         return;
 
-    if UNLIKELY (g_pSessionLockManager->isSessionLocked() && !*PSESSIONLOCKXRAY) {
+    // The session lock only covers the human desktop. Agent monitors keep rendering.
+    if UNLIKELY (g_pSessionLockManager->isSessionLocked() && !*PSESSIONLOCKXRAY && !Actors::isAgentMonitor(pMonitor)) {
         // We stop to render workspaces as soon as the lockscreen was sent the "locked" or "finished" (aka denied) event.
         // In addition we make sure to stop rendering workspaces after misc:lockdead_screen_delay has passed.
         if (g_pSessionLockManager->shallConsiderLockMissing() || g_pSessionLockManager->clientLocked() || g_pSessionLockManager->clientDenied())
@@ -1581,7 +1641,7 @@ void IHyprRenderer::requestBackgroundResource() {
 
     // doesn't have to be ASP as it's passed
     SP<CMainLoopExecutor> executor = makeShared<CMainLoopExecutor>([this] {
-        for (const auto& m : State::monitorState()->monitors()) {
+        for (const auto& m : State::monitorState()->renderMonitors()) {
             damageMonitor(m);
         }
     });
@@ -1809,6 +1869,9 @@ void IHyprRenderer::renderLockscreen(CRenderContext& ctx, PHLMONITOR pMonitor, c
         ensureLockTexturesRendered(false);
         return;
     }
+
+    if (Actors::isAgentMonitor(pMonitor))
+        return;
 
     const bool RENDERPRIMER = g_pSessionLockManager->shallConsiderLockMissing() || g_pSessionLockManager->clientLocked() || g_pSessionLockManager->clientDenied();
     if (RENDERPRIMER)
@@ -2850,6 +2913,14 @@ void IHyprRenderer::sendFrameEventsToWorkspace(PHLMONITOR pMonitor, PHLWORKSPACE
             continue;
 
         view->wlSurface()->resource()->frame(now);
+
+        // Windows shown inside this one draw at its pace (src/embed), with all their surfaces.
+        if (const auto WINDOW = Desktop::View::CWindow::fromView(view); WINDOW) {
+            for (const auto& embed : Embed::embeddedIn(WINDOW)) {
+                if (const auto EMBEDDED = embed.window.lock(); EMBEDDED && EMBEDDED->wlSurface() && EMBEDDED->wlSurface()->resource())
+                    EMBEDDED->wlSurface()->resource()->breadthfirst([&now](SP<CWLSurfaceResource> surface, const Vector2D&, void*) { surface->frame(now); }, nullptr);
+            }
+        }
     }
 }
 
@@ -3047,11 +3118,20 @@ void IHyprRenderer::damageSurface(SP<CWLSurfaceResource> pSurface, double x, dou
         return;
     }
 
+    // A window shown inside another one (src/embed) changes only what its host shows.
+    // Where it sits itself is out of sight, so its own monitor need not draw again.
+    auto window = Desktop::View::CWindow::fromView(WLSURF->view());
+    if (const auto SUBSURFACE = window ? nullptr : Desktop::View::CSubsurface::fromView(WLSURF->view()))
+        window = SUBSURFACE->windowOwner();
+    // The cheap embed lookup first: this runs for every surface commit.
+    if (window && Embed::hostOf(window) && !shouldRenderWindow(window) && Embed::damageThroughHost(window))
+        return;
+
     const auto SURFACE_BOX = WLSURF->getSurfaceBoxGlobal();
 
     // hack: schedule frame events
     if (!pSurface->m_current.callbacks.empty() && SURFACE_BOX && !SURFACE_BOX->empty()) {
-        for (auto const& m : State::monitorState()->monitors()) {
+        for (auto const& m : State::monitorState()->renderMonitors()) {
             if (!m->m_output)
                 continue;
 
@@ -3079,7 +3159,7 @@ void IHyprRenderer::damageSurface(SP<CWLSurfaceResource> pSurface, double x, dou
     }
     const auto EXTENTS = damageBox.getExtents().translate(position);
 
-    for (auto const& m : State::monitorState()->monitors()) {
+    for (auto const& m : State::monitorState()->renderMonitors()) {
         if (!m->m_output)
             continue;
         if (!EXTENTS.overlaps(m->logicalBox()))
@@ -3102,7 +3182,7 @@ void IHyprRenderer::damageWindow(PHLWINDOW pWindow, bool forceFull) {
     windowBox.translate(pWindow->presentation().floatingOffset());
     windowBox = pWindow->effects().transformBoxForDamage(windowBox);
 
-    for (auto const& m : State::monitorState()->monitors()) {
+    for (auto const& m : State::monitorState()->renderMonitors()) {
         if (forceFull || shouldRenderWindow(pWindow, m)) { // only damage if window is rendered on monitor
             CBox fixedDamageBox = {windowBox.x - m->m_position.x, windowBox.y - m->m_position.y, windowBox.width, windowBox.height};
             fixedDamageBox.scale(m->m_scale).round();
@@ -3130,7 +3210,7 @@ void IHyprRenderer::damageMonitor(PHLMONITOR pMonitor) {
 }
 
 void IHyprRenderer::damageBox(const CBox& box, bool skipFrameSchedule) {
-    for (auto const& m : State::monitorState()->monitors()) {
+    for (auto const& m : State::monitorState()->renderMonitors()) {
         if (m->isMirror())
             continue; // don't damage mirrors traditionally
 

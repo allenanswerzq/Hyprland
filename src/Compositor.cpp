@@ -1,5 +1,7 @@
 
 #include "Compositor.hpp"
+#include "actors/Actors.hpp"
+#include "embed/WindowEmbeds.hpp"
 #include "helpers/MiscFunctions.hpp"
 #include "render/decorations/DecorationPositioner.hpp"
 #include "config/supplementary/executor/Executor.hpp"
@@ -277,10 +279,20 @@ static std::vector<SP<Aquamarine::IOutput>> pendingOutputs;
 //
 
 static bool filterGlobals(const wl_client* client, const wl_global* global, void* data) {
+    const bool PRIVILEGED = !g_pProtocolManager || g_pProtocolManager->isGlobalPrivileged(global);
+
+    // A global made for some clients only, such as a wl_output of an agent's monitor.
+    if (const auto PROTOCOL = IWaylandProtocol::fromGlobal(global); PROTOCOL && !PROTOCOL->visibleTo(client))
+        return false;
+
+    // Actor rules: which protocols an agent's clients may see.
+    if (!Actors::globalVisibleTo(client, global, PRIVILEGED))
+        return false;
+
     if (!PROTO::securityContext->isClientSandboxed(client))
         return true;
 
-    return !g_pProtocolManager || !g_pProtocolManager->isGlobalPrivileged(global);
+    return !PRIVILEGED;
 }
 
 //
@@ -296,6 +308,7 @@ void CCompositor::initServer(std::string socketName, int socketFd) {
     }
 
     m_wlDisplay = wl_display_create();
+    Actors::init(m_wlDisplay);
 
     wl_display_set_global_filter(m_wlDisplay, ::filterGlobals, nullptr);
 
@@ -428,6 +441,11 @@ void CCompositor::initServer(std::string socketName, int socketFd) {
         LOG(Log::CRIT, "m_szWLDisplaySocket NULL!");
         throwError("m_szWLDisplaySocket was null! (wl_display_add_socket and wl_display_add_socket_auto failed)");
     }
+
+    if (const auto RESULT = Actors::createAgentSockets(m_wlDisplaySocket); !RESULT)
+        throwError(std::format("Cannot create agent sockets: {}", RESULT.error()));
+
+    Embed::init();
 
     setenv("WAYLAND_DISPLAY", m_wlDisplaySocket.c_str(), 1);
     if (!getenv("XDG_CURRENT_DESKTOP")) {
@@ -610,13 +628,15 @@ void CCompositor::cleanup() {
     Desktop::fadingOutState()->clear();
     Desktop::otherViewState()->clear();
 
-    for (auto const& m : State::monitorState()->monitors()) {
+    for (auto const& m : State::monitorState()->renderMonitors()) {
         g_pHyprOpenGL->destroyMonitorResources(m);
     }
 
     g_pXWayland.reset();
 
     wl_display_destroy_clients(g_pCompositor->m_wlDisplay);
+    Embed::destroy();
+    Actors::destroy();
 
     State::monitorState()->finish();
     State::fallbackState().reset();
@@ -834,6 +854,9 @@ void CCompositor::startCompositor() {
 #endif
 
     createLockFile();
+
+    // Agent monitors, seats and IPC, now that the backend runs.
+    Actors::start();
 
     Event::bus()->m_events.ready.emit();
 

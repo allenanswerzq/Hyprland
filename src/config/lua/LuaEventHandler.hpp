@@ -12,6 +12,7 @@
 #include "../../helpers/memory/Memory.hpp"
 #include "../../helpers/signal/Signal.hpp"
 #include "../../desktop/DesktopTypes.hpp"
+#include "../../actors/ActorTypes.hpp"
 #include "event/EventBus.hpp"
 #include "LuaRef.hpp"
 
@@ -59,6 +60,8 @@ namespace Config::Lua {
         std::unordered_map<std::string, CHyprSignalListener>   m_pluginListeners;
 
         void                                                   dispatch(const std::string& name, int nargs, const std::function<void(lua_State*)>& pushArgs);
+        // Only if the event is about an object on the human's desktop.
+        void dispatch(const std::string& name, const Actors::SEventSubject& subject, int nargs, const std::function<void(lua_State*)>& pushArgs);
     };
 
 }

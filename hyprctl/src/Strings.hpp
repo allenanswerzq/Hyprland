@@ -5,6 +5,9 @@
 const std::string_view USAGE = R"#(usage: hyprctl [flags] <command> [args...|--help]
 
 commands:
+    actor borrow|return <window> → Borrows an agent window for the human,
+                          or returns it to its agent
+    actors              → Lists the human, agents, sockets, and client counts
     activewindow        → Gets the active window name and its properties
     activeworkspace     → Gets the active workspace and its properties
     animations          → Gets the current config'd info about animations
@@ -19,6 +22,8 @@ commands:
     dismissnotify [amount] → Dismisses all or up to AMOUNT notifications
     dispatch <dispatcher> [args] → Issue a dispatch to call a keybind
                           dispatcher with arguments
+    embed <window> <host> <x> <y> <w> <h> <sx> <sy> → Shows a window inside
+                          a box of another window
     eval <code>         → Issue a Lua string to execute
     getoption <option>  → Gets the config option status (values)
     globalshortcuts     → Lists all global shortcuts
@@ -55,6 +60,7 @@ commands:
     status              → Get internal status information
     switchxkblayout ... → Sets the xkb layout index for a keyboard
     systeminfo          → Get system info
+    unembed <window>    → Stops showing a window inside another one
     version             → Prints the hyprland version, meaning flags, commit
                           and branch of build.
     workspacerules      → Lists all workspace rules

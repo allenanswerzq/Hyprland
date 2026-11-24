@@ -1,4 +1,5 @@
 #include "Screencopy.hpp"
+#include "../actors/Actors.hpp"
 #include "../managers/screenshare/ScreenshareManager.hpp"
 #include "core/Output.hpp"
 #include "../render/Renderer.hpp"
@@ -32,9 +33,14 @@ void CScreencopyClient::captureOutput(uint32_t frame, int32_t overlayCursor_, wl
         return;
     }
 
-    const auto PMONITOR = PMONITORRES->m_monitor.lock();
-    auto       session  = box.w == 0 && box.h == 0 ? Screenshare::mgr()->getManagedSession(m_resource->client(), PMONITOR) :
-                                                     Screenshare::mgr()->getManagedSession(m_resource->client(), PMONITOR, box);
+    const auto              PMONITOR = PMONITORRES->m_monitor.lock();
+    WP<CScreenshareSession> session;
+
+    // Without a session the frame fails, so a client that may not see this monitor gets a
+    // failed frame instead of its contents.
+    if (Actors::mayCapture(m_resource->client(), PMONITOR))
+        session = box.w == 0 && box.h == 0 ? Screenshare::mgr()->getManagedSession(m_resource->client(), PMONITOR) :
+                                             Screenshare::mgr()->getManagedSession(m_resource->client(), PMONITOR, box);
 
     const auto FRAME = PROTO::screencopy->m_frames.emplace_back(
         makeShared<CScreencopyFrame>(makeShared<CZwlrScreencopyFrameV1>(m_resource->client(), m_resource->version(), frame), session, !!overlayCursor_));

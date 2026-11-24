@@ -22,6 +22,7 @@ namespace Render {
 #include "../../helpers/math/Math.hpp"
 #include "../../helpers/time/Time.hpp"
 #include "../types/DataDevice.hpp"
+#include "../../actors/ActorTypes.hpp"
 #include <hyprutils/os/FileDescriptor.hpp>
 
 class CWLDataDeviceResource;
@@ -161,6 +162,15 @@ class CWLDataDeviceProtocol : public IWaylandProtocol {
 
     // called on an escape key pressed, for moments where it gets stuck
     void abortDndIfPresent();
+
+    // Marks every clipboard offer whose client is controlled by an actor as dead. Each actor
+    // has its own clipboard, so a new selection only replaces that actor's offers.
+    void invalidateOffersFor(Actors::ActorID actor);
+    // Marks every clipboard offer of one client as dead, for example when the client changes
+    // controller.
+    void invalidateOffersForClient(const wl_client* client);
+    // Sends a selection (or no selection, for a null source) to one Wayland client.
+    void sendSelectionToClient(const wl_client* client, SP<IDataSource> source);
 
   private:
     void destroyResource(CWLDataDeviceManagerResource* resource);

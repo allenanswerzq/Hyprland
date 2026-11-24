@@ -1,4 +1,5 @@
 #include "LayerSurface.hpp"
+#include "../../actors/Actors.hpp"
 #include "../state/FocusState.hpp"
 #include "../state/FadingOutState.hpp"
 #include "../state/LayerState.hpp"
@@ -27,6 +28,11 @@ PHLLS CLayerSurface::create(SP<CLayerShellResource> resource) {
     PHLLS pLS = SP<CLayerSurface>(new CLayerSurface(resource));
 
     auto  pMonitor = resource->m_monitor.empty() ? Desktop::focusState()->monitor() : State::monitorState()->query().name(resource->m_monitor).run();
+    // An agent's layer surface that names no monitor opens on its agent's monitor (src/actors).
+    if (const auto SURFACE = resource->m_surface.lock(); resource->m_monitor.empty() && SURFACE) {
+        if (const auto AGENT_MONITOR = Actors::agentMonitorOf(SURFACE->client()))
+            pMonitor = AGENT_MONITOR;
+    }
 
     pLS->m_wlSurface->assign(resource->m_surface.lock(), pLS);
 
@@ -97,6 +103,12 @@ CLayerSurface::~CLayerSurface() {
         return;
 
     for (auto const& mon : State::monitorState()->allMonitors()) {
+        for (auto& lsl : mon->m_layerSurfaceLayers) {
+            std::erase_if(lsl, [this](auto& ls) { return ls.expired() || ls.get() == this; });
+        }
+    }
+
+    for (auto const& mon : State::monitorState()->agentMonitors()) {
         for (auto& lsl : mon->m_layerSurfaceLayers) {
             std::erase_if(lsl, [this](auto& ls) { return ls.expired() || ls.get() == this; });
         }
@@ -243,7 +255,7 @@ void CLayerSurface::onMap() {
     if (!isHiddenByFullscreen(PMONITOR))
         m_animationController.apply(m_animationController.animateIn());
 
-    IPC::Socket2::sock()->postEvent({.event = "openlayer", .data = m_namespace});
+    IPC::Socket2::sock()->postEvent({.event = "openlayer", .data = m_namespace, .subject = m_self.lock()});
     Event::bus()->m_events.layer.opened.emit(m_self.lock());
 
     updateSurfaceScaleTransformDetails();
@@ -252,7 +264,7 @@ void CLayerSurface::onMap() {
 void CLayerSurface::onUnmap() {
     LOG(Log::DEBUG, "LayerSurface {:x} unmapped", rc<uintptr_t>(m_layerSurface.get()));
 
-    IPC::Socket2::sock()->postEvent({.event = "closelayer", .data = m_layerSurface->m_layerNamespace});
+    IPC::Socket2::sock()->postEvent({.event = "closelayer", .data = m_layerSurface->m_layerNamespace, .subject = m_self.lock()});
     Event::bus()->m_events.layer.closed.emit(m_self.lock());
 
     std::erase_if(g_pInputManager->m_exclusiveKeyboardLSes, [this](const auto& other) { return !other || other == m_self; });

@@ -3,6 +3,7 @@
 #include "../Compositor.hpp"
 #include "../managers/SeatManager.hpp"
 #include "core/Compositor.hpp"
+#include "../actors/Actors.hpp"
 #include <algorithm>
 
 static constexpr const size_t MAX_TOKENS_IN_CACHE   = 1024;
@@ -94,6 +95,7 @@ void CXDGActivationProtocol::bindManager(wl_client* client, void* data, uint32_t
         }
 
         const bool CAN_ACTIVATE = (*TOKEN)->canActivate();
+        const auto ISSUER       = (*TOKEN)->client();
 
         // remove token. It's been now spent.
         m_sentTokens.erase(TOKEN);
@@ -105,6 +107,9 @@ void CXDGActivationProtocol::bindManager(wl_client* client, void* data, uint32_t
             LOG(Log::WARN, "activate event for non-window or gone surface with token {}, ignoring", token);
             return;
         }
+
+        if (!Actors::mayActivate(ISSUER, PWINDOW))
+            return;
 
         if (CAN_ACTIVATE)
             PWINDOW->activate();

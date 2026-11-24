@@ -58,7 +58,9 @@ namespace IPC::Socket1 {
 
     class CSocket1 {
       public:
-        CSocket1();
+        // directory holds .socket.sock; the instance path by default. Without builtinCommands
+        // the socket starts empty, for a caller that registers its own commands.
+        explicit CSocket1(std::string directory = "", bool builtinCommands = true);
         ~CSocket1();
 
         SResponse    dispatch(std::string request, pid_t pid = 0);

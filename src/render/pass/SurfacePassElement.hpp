@@ -78,6 +78,8 @@ class CSurfacePassElement : public IPassElement {
     CBox        getTexBox();
 
   private:
-    bool m_texBoxCached = false;
-    CBox m_cachedTexBox = {};
+    bool    m_texBoxCached = false;
+    CBox    m_cachedTexBox = {};
+
+    CRegion unclippedOpaqueRegion(Render::CRenderContext& ctx);
 };

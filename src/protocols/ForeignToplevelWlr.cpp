@@ -91,7 +91,7 @@ CForeignToplevelHandleWlr::CForeignToplevelHandleWlr(SP<CZwlrForeignToplevelHand
         if UNLIKELY (!PWINDOW->mapped())
             return;
 
-        IPC::Socket2::sock()->postEvent({.event = "minimized", .data = std::format("{:x},1", rc<uintptr_t>(PWINDOW.get()))});
+        IPC::Socket2::sock()->postEvent({.event = "minimized", .data = std::format("{:x},1", rc<uintptr_t>(PWINDOW.get())), .subject = PWINDOW});
         Event::bus()->m_events.window.minimize.emit(PWINDOW, true);
     });
 
@@ -104,7 +104,7 @@ CForeignToplevelHandleWlr::CForeignToplevelHandleWlr(SP<CZwlrForeignToplevelHand
         if UNLIKELY (!PWINDOW->mapped())
             return;
 
-        IPC::Socket2::sock()->postEvent({.event = "minimized", .data = std::format("{:x},0", rc<uintptr_t>(PWINDOW.get()))});
+        IPC::Socket2::sock()->postEvent({.event = "minimized", .data = std::format("{:x},0", rc<uintptr_t>(PWINDOW.get())), .subject = PWINDOW});
         Event::bus()->m_events.window.minimize.emit(PWINDOW, false);
     });
 

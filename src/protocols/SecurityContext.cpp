@@ -1,6 +1,8 @@
 #include "SecurityContext.hpp"
 #include "../Compositor.hpp"
+#include "../actors/Actors.hpp"
 #include <sys/socket.h>
+#include <unistd.h>
 using namespace Hyprutils::OS;
 
 static int onListenFdEvent(int fd, uint32_t mask, void* data) {
@@ -15,8 +17,8 @@ static int onCloseFdEvent(int fd, uint32_t mask, void* data) {
     return 0;
 }
 
-SP<CSecurityContextSandboxedClient> CSecurityContextSandboxedClient::create(CFileDescriptor clientFD_) {
-    auto p = SP<CSecurityContextSandboxedClient>(new CSecurityContextSandboxedClient(std::move(clientFD_)));
+SP<CSecurityContextSandboxedClient> CSecurityContextSandboxedClient::create(CFileDescriptor clientFD_, Actors::ActorID owner) {
+    auto p = SP<CSecurityContextSandboxedClient>(new CSecurityContextSandboxedClient(std::move(clientFD_), owner));
     if (!p->m_client)
         return nullptr;
     return p;
@@ -28,8 +30,10 @@ static void onSecurityContextClientDestroy(wl_listener* l, void* d) {
     client->onDestroy();
 }
 
-CSecurityContextSandboxedClient::CSecurityContextSandboxedClient(CFileDescriptor clientFD_) : m_clientFD(std::move(clientFD_)) {
-    m_client = wl_client_create(g_pCompositor->m_wlDisplay, m_clientFD.get());
+CSecurityContextSandboxedClient::CSecurityContextSandboxedClient(CFileDescriptor clientFD_, Actors::ActorID owner) : m_clientFD(std::move(clientFD_)) {
+    // A sandboxed client belongs to the actor whose client created the security context.
+    m_client = Actors::createClient(g_pCompositor->m_wlDisplay, m_clientFD.get(), owner);
+
     if (!m_client)
         return;
 
@@ -50,7 +54,8 @@ void CSecurityContextSandboxedClient::onDestroy() {
     std::erase_if(PROTO::securityContext->m_sandboxedClients, [this](const auto& e) { return e.get() == this; });
 }
 
-CSecurityContext::CSecurityContext(SP<CWpSecurityContextV1> resource_, int listenFD_, int closeFD_) : m_listenFD(listenFD_), m_closeFD(closeFD_), m_resource(resource_) {
+CSecurityContext::CSecurityContext(SP<CWpSecurityContextV1> resource_, int listenFD_, int closeFD_, Actors::ActorID owner) :
+    m_listenFD(listenFD_), m_closeFD(closeFD_), m_resource(resource_), m_owner(owner) {
     if UNLIKELY (!good())
         return;
 
@@ -155,7 +160,7 @@ void CSecurityContext::onListen(uint32_t mask) {
         return;
     }
 
-    auto newClient = CSecurityContextSandboxedClient::create(std::move(clientFD));
+    auto newClient = CSecurityContextSandboxedClient::create(std::move(clientFD), m_owner);
     if UNLIKELY (!newClient) {
         LOG(Log::ERR, "security_context at 0x{:x} couldn't create a client", (uintptr_t)this);
         return;
@@ -181,8 +186,16 @@ CSecurityContextManagerResource::CSecurityContextManagerResource(SP<CWpSecurityC
     m_resource->setOnDestroy([this](CWpSecurityContextManagerV1* r) { PROTO::securityContext->destroyResource(this); });
 
     m_resource->setCreateListener([](CWpSecurityContextManagerV1* r, uint32_t id, int32_t lfd, int32_t cfd) {
+        const auto OWNER = Actors::ownerOf(r->client());
+        if (!OWNER) {
+            close(lfd);
+            close(cfd);
+            wl_client_post_implementation_error(r->client(), "security context creator has no actor owner");
+            return;
+        }
+
         const auto RESOURCE =
-            PROTO::securityContext->m_contexts.emplace_back(makeShared<CSecurityContext>(makeShared<CWpSecurityContextV1>(r->client(), r->version(), id), lfd, cfd));
+            PROTO::securityContext->m_contexts.emplace_back(makeShared<CSecurityContext>(makeShared<CWpSecurityContextV1>(r->client(), r->version(), id), lfd, cfd, *OWNER));
 
         if UNLIKELY (!RESOURCE->good()) {
             r->noMemory();

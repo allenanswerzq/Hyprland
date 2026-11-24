@@ -120,6 +120,29 @@ std::optional<CBox> CSurfacePassElement::boundingBox(Render::CRenderContext& ctx
 }
 
 CRegion CSurfacePassElement::opaqueRegion(Render::CRenderContext& ctx) {
+    // A clipped surface hides what is behind it only where it is drawn: inside its clip box.
+    auto region = unclippedOpaqueRegion(ctx);
+    if (region.empty() || m_data.clipBox.empty())
+        return region;
+
+    const auto PMONITOR = m_data.pMonitor.lock();
+    if (!PMONITOR)
+        return {};
+
+    // The clip box is in the monitor's pixels, the region in its logical coordinates. Only
+    // logical pixels the clip box fully covers count.
+    const auto&  CLIP  = m_data.clipBox;
+    const double SCALE = PMONITOR->m_scale;
+    const double left = std::ceil(CLIP.x / SCALE), top = std::ceil(CLIP.y / SCALE);
+    const double right = std::floor((CLIP.x + CLIP.w) / SCALE), bottom = std::floor((CLIP.y + CLIP.h) / SCALE);
+    if (right <= left || bottom <= top)
+        return {};
+
+    region.intersect(left, top, right - left, bottom - top);
+    return region;
+}
+
+CRegion CSurfacePassElement::unclippedOpaqueRegion(Render::CRenderContext& ctx) {
     auto        PSURFACE = Desktop::View::CWLSurface::fromResource(m_data.surface);
 
     const float ALPHA = m_data.alpha * m_data.fadeAlpha * (PSURFACE ? PSURFACE->m_alphaModifier * PSURFACE->m_overallOpacity : 1.F);

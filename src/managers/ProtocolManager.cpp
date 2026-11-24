@@ -1,6 +1,7 @@
 #include "ProtocolManager.hpp"
 
 #include "../config/ConfigValue.hpp"
+#include "../actors/Actors.hpp"
 
 #include "../protocols/TearingControl.hpp"
 #include "../protocols/FractionalScale.hpp"
@@ -120,8 +121,9 @@ void CProtocolManager::onMonitorModeChange(PHLMONITOR pMonitor) {
         PROTO::outputs.at(pMonitor->m_name)->remove();
     else if (!ISMIRROR && (!PROTO::outputs.contains(pMonitor->m_name) || PROTO::outputs.at(pMonitor->m_name)->isDefunct())) {
         retireOutputGlobal(pMonitor->m_name);
-        auto p = PROTO::outputs.emplace(pMonitor->m_name,
-                                        makeShared<CWLOutputProtocol>(&wl_output_interface, 4, std::format("WLOutput ({})", pMonitor->m_name), pMonitor->m_self.lock()));
+        auto p = PROTO::outputs.emplace(
+            pMonitor->m_name,
+            makeShared<CWLOutputProtocol>(&wl_output_interface, 4, std::format("WLOutput ({})", pMonitor->m_name), pMonitor->m_self.lock(), Actors::outputAudience(pMonitor)));
         p.first->second->m_self = p.first->second;
     }
 
@@ -147,7 +149,7 @@ CProtocolManager::CProtocolManager() {
 
         retireOutputGlobal(M->m_name);
 
-        auto ref = makeShared<CWLOutputProtocol>(&wl_output_interface, 4, std::format("WLOutput ({})", M->m_name), M->m_self.lock());
+        auto ref = makeShared<CWLOutputProtocol>(&wl_output_interface, 4, std::format("WLOutput ({})", M->m_name), M->m_self.lock(), Actors::outputAudience(M));
         PROTO::outputs.emplace(M->m_name, ref);
         ref->m_self = ref;
 

@@ -1,0 +1,107 @@
+# Parallel's release. Pushing a tag like parallel-v0.57.0-3 builds this
+# branch on Arch Linux from Omarchy's mirror, the packages an Omarchy machine
+# runs, and attaches hyprland-parallel-<version>.tar.gz to the tag's release.
+#
+# The tarball holds bin/Hyprland, bin/hyprctl and, in lib/, the Aquamarine and
+# Hyprutils this Hyprland needs, newer than Omarchy's. Hyprland loads those two
+# from beside itself and the rest from /usr/lib, so it runs as it is on Omarchy.
+# Aquamarine is upstream's, at the revision flake.lock pins and CI tests.
+name: Parallel release
+
+on:
+  push:
+    tags: ["parallel-v*"]
+
+permissions:
+  contents: write
+
+env:
+  AQUAMARINE_REPO: https://github.com/hyprwm/aquamarine
+  AQUAMARINE_REV: 7c1c55b2a76ddb9f6602f8c0886ecf1b899529f9
+  HYPRUTILS_VERSION: v0.14.4
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install Omarchy's packages
+        run: |
+          echo 'Server = https://stable-mirror.omarchy.org/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+          # The image can be newer than the mirror. Arch's OpenSSL 4 moved
+          # OpenSSL 3's libraries to a package openssl-3, which the mirror's
+          # openssl 3 then finds in its way; the mirror's take their place.
+          pacman -Syyuu --noconfirm --overwrite /usr/lib/libcrypto.so.3 --overwrite /usr/lib/libssl.so.3
+          # Arch's hyprland brings the libraries Hyprland runs with; the rest
+          # are what Arch builds it with.
+          pacman -S --noconfirm --needed git github-cli patchelf hyprland \
+            cmake glaze hyprland-protocols hyprwayland-scanner libcanberra meson ninja xorgproto
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build Hyprutils
+        run: |
+          git clone --depth 1 -b "$HYPRUTILS_VERSION" https://github.com/hyprwm/hyprutils /tmp/hyprutils
+          cmake -S /tmp/hyprutils -B /tmp/hyprutils/build -G Ninja \
+            -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr -D BUILD_TESTING=OFF
+          cmake --build /tmp/hyprutils/build
+          cmake --install /tmp/hyprutils/build
+
+      - name: Build Aquamarine
+        run: |
+          git clone "$AQUAMARINE_REPO" /tmp/aquamarine
+          git -C /tmp/aquamarine checkout "$AQUAMARINE_REV"
+          cmake -S /tmp/aquamarine -B /tmp/aquamarine/build -G Ninja \
+            -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr
+          cmake --build /tmp/aquamarine/build
+          cmake --install /tmp/aquamarine/build
+
+      - name: Build Hyprland
+        run: |
+          # As Arch does: its glaze is newer than the range Hyprland asks for.
+          sed -i '/find_package.glaze/s/7...<8 //' {.,hyprpm,start}/CMakeLists.txt
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr
+          cmake --build build --target Hyprland hyprctl
+
+      - name: Pack
+        run: |
+          version=${GITHUB_REF_NAME#parallel-v}
+          name=hyprland-parallel-$version
+          mkdir -p "$name/bin" "$name/lib"
+          cp build/Hyprland build/hyprctl/hyprctl "$name/bin/"
+          strip "$name/bin/Hyprland" "$name/bin/hyprctl"
+          patchelf --set-rpath '$ORIGIN/../lib' "$name/bin/Hyprland"
+          patchelf --set-rpath '$ORIGIN/../lib' "$name/bin/hyprctl"
+          for library in aquamarine hyprutils; do
+            soname=$(readelf -d build/Hyprland | grep -o "lib$library\.so\.[0-9]*")
+            cp -L "/usr/lib/$soname" "$name/lib/"
+            strip "$name/lib/$soname"
+          done
+
+          # Hyprland must load our Aquamarine and Hyprutils and find every other library.
+          ldd "$name/bin/Hyprland" | tee libraries.txt
+          for library in aquamarine hyprutils; do
+            grep -q "lib$library\.so\.[0-9]* => .*/$name/" libraries.txt
+          done
+          ldd "$name/bin/hyprctl" | tee -a libraries.txt
+          if grep 'not found' libraries.txt; then
+            exit 1
+          fi
+
+          tar -czf "$name.tar.gz" "$name"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "TARBALL=$name.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$TARBALL" -R "$GITHUB_REPOSITORY" \
+            --title "Parallel Hyprland $VERSION" \
+            --notes "Hyprland with agent actors (HYPRLAND_AGENT_COUNT) and upstream Aquamarine $AQUAMARINE_REV, built on Omarchy's Arch mirror."

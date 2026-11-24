@@ -1,4 +1,6 @@
 #include "Commands.hpp"
+#include "../../actors/Actors.hpp"
+#include "../../embed/WindowEmbeds.hpp"
 #include "../../desktop/view/window/WindowFullscreenPolicy.hpp"
 #include "../../desktop/view/window/WindowGroupMembership.hpp"
 #include "../../desktop/view/window/WindowPresentation.hpp"
@@ -385,11 +387,16 @@ static std::string monitorsRequest(eHyprCtlOutputFormat format, std::string requ
     if (vars.size() == 2 && vars[1] == "all")
         allMonitors = true;
 
+    // The human's hyprctl is an admin view, so it lists the agents' monitors (src/actors) too.
+    auto monitors = allMonitors ? State::monitorState()->allMonitors() : State::monitorState()->renderMonitors();
+    if (allMonitors)
+        std::ranges::copy(State::monitorState()->agentMonitors(), std::back_inserter(monitors));
+
     std::string result = "";
     if (format == eHyprCtlOutputFormat::FORMAT_JSON) {
         result += "[";
 
-        for (auto const& m : allMonitors ? State::monitorState()->allMonitors() : State::monitorState()->monitors()) {
+        for (auto const& m : monitors) {
             result += CCommandFormatter::getMonitorData(m, format);
         }
 
@@ -397,7 +404,7 @@ static std::string monitorsRequest(eHyprCtlOutputFormat format, std::string requ
 
         result += "]";
     } else {
-        for (auto const& m : allMonitors ? State::monitorState()->allMonitors() : State::monitorState()->monitors()) {
+        for (auto const& m : monitors) {
             if (!m->m_output || m->m_id == -1)
                 continue;
 
@@ -451,6 +458,11 @@ std::string CCommandFormatter::getWindowData(PHLWINDOW w, eHyprCtlOutputFormat f
     const auto METADATA          = w->backend().metadata();
     const bool VISIBLE           = w->mapped() && w->acceptsInput() && w->alphaNonZero();
     const auto WORKSPACE_ADDRESS = w->workspaceAddress();
+    const auto OWNER_ID          = w->owner();
+    const auto OWNER_NAME        = Actors::nameOf(OWNER_ID);
+    // The controller differs from the owner while the human borrows an agent window.
+    const auto CONTROLLER_ID   = Actors::controllerOf(w);
+    const auto CONTROLLER_NAME = Actors::nameOf(CONTROLLER_ID);
 
     if (format == eHyprCtlOutputFormat::FORMAT_JSON) {
         return std::format(
@@ -474,6 +486,14 @@ std::string CCommandFormatter::getWindowData(PHLWINDOW w, eHyprCtlOutputFormat f
     "initialClass": "{}",
     "initialTitle": "{}",
     "pid": {},
+    "owner": {{
+        "id": {},
+        "name": "{}"
+    }},
+    "controller": {{
+        "id": {},
+        "name": "{}"
+    }},
     "xwayland": {},
     "pinned": {},
     "pinFullscreened": {},
@@ -505,7 +525,11 @@ std::string CCommandFormatter::getWindowData(PHLWINDOW w, eHyprCtlOutputFormat f
             escapeJSONStrings(w->metadata().title()),
             escapeJSONStrings(w->metadata().initialAppID()),
             escapeJSONStrings(w->metadata().initialTitle()),
-            w->backend().pid(), (w->backend().isX11() ? "true" : "false"), ((w->m_state & Desktop::View::WINDOW_STATE_PINNED) ? "true" : "false"),
+            w->backend().pid(),
+            OWNER_ID,
+            escapeJSONStrings(OWNER_NAME),
+            CONTROLLER_ID,
+            escapeJSONStrings(CONTROLLER_NAME), (w->backend().isX11() ? "true" : "false"), ((w->m_state & Desktop::View::WINDOW_STATE_PINNED) ? "true" : "false"),
             (w->fullscreenPolicy().pinFullscreened() ? "true" : "false"),
             sc<uint8_t>(Fullscreen::controller()->getFullscreenModes(w).internal),
             sc<uint8_t>(Fullscreen::controller()->getFullscreenModes(w).client),
@@ -523,7 +547,7 @@ std::string CCommandFormatter::getWindowData(PHLWINDOW w, eHyprCtlOutputFormat f
             "Window {:x} -> {}:\n\tmapped: {}\n\thidden: {}\n\tvisible: {}\n\tacceptsInput: {}\n\tat: {},{}\n\tsize: {},{}\n\tworkspace: {} ({})\n\tfloating: {}\n\tmonitor: "
             "{}\n\tclass: {}\n\ttitle: "
             "{}\n\tinitialClass: {}\n\tinitialTitle: {}\n\tpid: "
-            "{}\n\txwayland: {}\n\tpinned: {}\n\tpinFullscreened: "
+            "{}\n\towner: {} ({})\n\tcontroller: {} ({})\n\txwayland: {}\n\tpinned: {}\n\tpinFullscreened: "
             "{}\n\tfullscreen: {}\n\tfullscreenClient: {}\n\tfullscreenHandler: {}\n\tallowedOverFullscreen: {}\n\tgrouped: {}\n\ttags: {}\n\tswallowing: {:x}\n\tfocusHistoryID: "
             "{}\n\tinhibitingIdle: "
             "{}\n\txdgTag: "
@@ -546,6 +570,10 @@ std::string CCommandFormatter::getWindowData(PHLWINDOW w, eHyprCtlOutputFormat f
             w->metadata().initialAppID(),
             w->metadata().initialTitle(),
             w->backend().pid(),
+            OWNER_NAME,
+            OWNER_ID,
+            CONTROLLER_NAME,
+            CONTROLLER_ID,
             sc<int>(w->backend().isX11()),
             sc<int>(sc<bool>(w->m_state & Desktop::View::WINDOW_STATE_PINNED)),
             sc<int>(w->fullscreenPolicy().pinFullscreened()),
@@ -768,7 +796,7 @@ static std::string layersRequest(eHyprCtlOutputFormat format, std::string reques
     if (format == eHyprCtlOutputFormat::FORMAT_JSON) {
         result += "{\n";
 
-        for (auto const& mon : State::monitorState()->monitors()) {
+        for (auto const& mon : State::monitorState()->renderMonitors()) {
             result += std::format(
                 R"#("{}": {{
     "levels": {{
@@ -821,7 +849,7 @@ static std::string layersRequest(eHyprCtlOutputFormat format, std::string reques
         result += "\n}\n";
 
     } else {
-        for (auto const& mon : State::monitorState()->monitors()) {
+        for (auto const& mon : State::monitorState()->renderMonitors()) {
             result += std::format("Monitor {}:\n", mon->m_name);
             int                                     layerLevel = 0;
             static const std::array<std::string, 4> levelNames = {"background", "bottom", "top", "overlay"};
@@ -1831,6 +1859,12 @@ static std::string dispatchOutput(eHyprCtlOutputFormat format, std::string reque
 
     bool       added = false;
 
+    // AGENT-NNN outputs are the agents' desktops. Only the agent manager creates them, and
+    // they live as long as the compositor.
+    const auto OUTPUT_NAME = MODE == "create" || MODE == "add" ? vars[3] : vars[2];
+    if (Actors::isReservedOutputName(OUTPUT_NAME))
+        return "That output name is reserved for agents.";
+
     if (!vars[3].empty()) {
         for (auto const& m : State::monitorState()->allMonitors()) {
             if (m->m_name == vars[3])
@@ -2075,6 +2109,8 @@ static SCommand legacyCommand(std::string name, eCommandMatch match, F handler) 
 }
 
 void IPC::Socket1::registerBuiltinCommands(CSocket1& socket) {
+    Actors::registerCommands(socket);
+    Embed::registerCommands(socket);
     socket.registerCommand(legacyCommand("workspaces", COMMAND_MATCH_EXACT, workspacesRequest));
     socket.registerCommand(legacyCommand("workspacerules", COMMAND_MATCH_EXACT, workspaceRulesRequest));
     socket.registerCommand(legacyCommand("activeworkspace", COMMAND_MATCH_EXACT, activeWorkspaceRequest));
@@ -2131,7 +2167,7 @@ void IPC::Socket1::refreshState() {
 
     g_pHyprRenderer->m_reloadScreenShader = true;
 
-    for (const auto& monitor : State::monitorState()->monitors()) {
+    for (const auto& monitor : State::monitorState()->renderMonitors()) {
         if (monitor)
             monitor->m_blurFBDirty = true;
     }
@@ -2152,6 +2188,6 @@ void IPC::Socket1::refreshState() {
         workspace->updateWindowDecos();
     }
 
-    for (const auto& monitor : State::monitorState()->monitors())
+    for (const auto& monitor : State::monitorState()->renderMonitors())
         g_pHyprRenderer->damageMonitor(monitor);
 }

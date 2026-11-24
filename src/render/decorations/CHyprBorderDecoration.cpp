@@ -139,7 +139,7 @@ void CHyprBorderDecoration::damageEntire() {
 
     const CBox borderExtents = borderRegion.getExtents();
 
-    for (auto const& m : State::monitorState()->monitors()) {
+    for (auto const& m : State::monitorState()->renderMonitors()) {
         const CBox monitorBox = {m->m_position, m->m_size};
         if (borderExtents.intersection(monitorBox).empty())
             continue;

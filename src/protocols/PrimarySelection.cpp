@@ -3,6 +3,7 @@
 #include "../managers/SeatManager.hpp"
 #include "core/Seat.hpp"
 #include "../config/ConfigValue.hpp"
+#include "../actors/Actors.hpp"
 using namespace Hyprutils::OS;
 
 CPrimarySelectionOffer::CPrimarySelectionOffer(SP<CZwpPrimarySelectionOfferV1> resource_, SP<IDataSource> source_) : m_source(source_), m_resource(resource_) {
@@ -121,6 +122,11 @@ CPrimarySelectionDevice::CPrimarySelectionDevice(SP<CZwpPrimarySelectionDeviceV1
         }
 
         auto source = sourceR ? CPrimarySelectionSource::fromResource(sourceR) : CSharedPointer<CPrimarySelectionSource>{};
+
+        // Agent clients have their own primary selection, held by their agent seat.
+        if (Actors::routeSelection(r->client(), source, true))
+            return;
+
         if (!source) {
             LOG(Log::DEBUG, "wlr reset selection received");
             g_pSeatManager->setCurrentPrimarySelection(nullptr);
@@ -270,11 +276,7 @@ void CPrimarySelectionProtocol::sendSelectionToDevice(SP<CPrimarySelectionDevice
 }
 
 void CPrimarySelectionProtocol::setSelection(SP<IDataSource> source) {
-    for (auto const& o : m_offers) {
-        if (o->m_source && o->m_source->hasDnd())
-            continue;
-        o->m_dead = true;
-    }
+    invalidateOffersFor(Actors::HUMAN_ACTOR_ID);
 
     if (!source) {
         LOG(Log::DEBUG, "resetting selection");
@@ -321,11 +323,31 @@ void CPrimarySelectionProtocol::updateSelection() {
 }
 
 void CPrimarySelectionProtocol::onPointerFocus() {
-    for (auto const& o : m_offers) {
-        o->m_dead = true;
-    }
+    invalidateOffersFor(Actors::HUMAN_ACTOR_ID);
 
     updateSelection();
+}
+
+void CPrimarySelectionProtocol::invalidateOffersFor(Actors::ActorID actor) {
+    for (auto const& o : m_offers) {
+        if (Actors::controllerOf(o->m_resource->client()) == actor)
+            o->m_dead = true;
+    }
+}
+
+void CPrimarySelectionProtocol::invalidateOffersForClient(const wl_client* client) {
+    for (auto const& o : m_offers) {
+        if (o->m_resource->client() == client)
+            o->m_dead = true;
+    }
+}
+
+void CPrimarySelectionProtocol::sendSelectionToClient(const wl_client* client, SP<IDataSource> source) {
+    const auto DEVICE = dataDeviceForClient(const_cast<wl_client*>(client));
+    if (!DEVICE)
+        return;
+
+    sendSelectionToDevice(DEVICE, source);
 }
 
 SP<CPrimarySelectionDevice> CPrimarySelectionProtocol::dataDeviceForClient(wl_client* c) {

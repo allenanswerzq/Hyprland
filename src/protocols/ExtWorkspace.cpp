@@ -1,5 +1,6 @@
 #include "ExtWorkspace.hpp"
 #include "../Compositor.hpp"
+#include "../actors/Actors.hpp"
 #include "../managers/eventLoop/EventLoopManager.hpp"
 #include "../event/EventBus.hpp"
 #include <algorithm>
@@ -276,7 +277,7 @@ void CExtWorkspaceManagerResource::init(WP<CExtWorkspaceManagerResource> self) {
 
     m_self = self;
 
-    for (auto const& m : State::monitorState()->monitors()) {
+    for (auto const& m : State::monitorState()->renderMonitors()) {
         onMonitorCreated(m);
     }
 
@@ -339,6 +340,9 @@ void CExtWorkspaceManagerResource::sendCoordinatesForGroup(const PHLMONITORREF& 
 }
 
 void CExtWorkspaceManagerResource::onMonitorCreated(const PHLMONITOR& monitor) {
+    if (!Actors::clientSees(m_resource->client(), monitor))
+        return;
+
     auto& group = PROTO::extWorkspace->m_groups.emplace_back(
         makeUnique<CExtWorkspaceGroupResource>(m_self, makeUnique<CExtWorkspaceGroupHandleV1>(m_resource->client(), m_resource->version(), 0), monitor));
     group->m_self = group;
@@ -354,6 +358,9 @@ void CExtWorkspaceManagerResource::onMonitorCreated(const PHLMONITOR& monitor) {
 }
 
 void CExtWorkspaceManagerResource::onWorkspaceCreated(const PHLWORKSPACE& workspace) {
+    if (!Actors::clientSees(m_resource->client(), workspace))
+        return;
+
     auto& ws = PROTO::extWorkspace->m_workspaces.emplace_back(
         makeUnique<CExtWorkspaceResource>(m_self, makeUnique<CExtWorkspaceHandleV1>(m_resource->client(), m_resource->version(), 0), workspace));
     ws->m_self = ws;

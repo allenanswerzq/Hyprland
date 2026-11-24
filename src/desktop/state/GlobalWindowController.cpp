@@ -9,6 +9,9 @@
 #include "../../layout/LayoutManager.hpp"
 #include "../../layout/target/Target.hpp"
 #include "../../managers/fullscreen/FullscreenController.hpp"
+#include "../../actors/Actors.hpp"
+#include "../../embed/WindowEmbeds.hpp"
+#include "../../debug/log/Logger.hpp"
 
 using namespace Desktop;
 
@@ -28,11 +31,22 @@ void CGlobalWindowController::updateAllWindowsDecorations() const {
 
 void CGlobalWindowController::updateSuspendedStates() const {
     for (auto const& w : Desktop::windowState()->windows()) {
-        if (!w->mapped())
-            continue;
-
-        w->setSuspended(w->isHidden() || !w->m_workspace || !w->m_workspace->visible());
+        updateSuspendedState(w);
     }
+}
+
+static bool shownOnItsWorkspace(const PHLWINDOW& window) {
+    return !window->isHidden() && window->m_workspace && window->m_workspace->visible();
+}
+
+void CGlobalWindowController::updateSuspendedState(const PHLWINDOW& window) const {
+    if (!window || !window->mapped())
+        return;
+
+    // A window embedded in another one (src/embed) is seen on its own workspace, and also
+    // wherever its host is seen.
+    const auto HOST = Embed::hostOf(window);
+    window->setSuspended(!shownOnItsWorkspace(window) && !(HOST && shownOnItsWorkspace(HOST)));
 }
 
 void CGlobalWindowController::moveWindowToWorkspace(PHLWINDOW pWindow, PHLWORKSPACE pWorkspace) const {
@@ -44,6 +58,12 @@ void CGlobalWindowController::moveWindowToWorkspace(PHLWINDOW pWindow, PHLWORKSP
 
     if (pWindow->m_workspace == pWorkspace)
         return;
+
+    // A window lives only on workspaces of the actor that controls it.
+    if (Actors::actorOf(pWorkspace) != Actors::controllerOf(pWindow)) {
+        LOG(Log::DEBUG, "Refusing to move {} to workspace {}: it belongs to another actor", pWindow, pWorkspace->addressableName());
+        return;
+    }
 
     const bool FULLSCREEN     = Fullscreen::controller()->isFullscreen(pWindow);
     const auto FULLSCREENMODE = Fullscreen::controller()->getFullscreenModes(pWindow).internal;

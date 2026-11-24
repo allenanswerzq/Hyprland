@@ -8,6 +8,7 @@
 #include "../../render/Renderer.hpp"
 #include "../../managers/input/InputManager.hpp"
 #include "../../output/Monitor.hpp"
+#include "../../embed/WindowEmbeds.hpp"
 
 using namespace Desktop;
 using namespace Desktop::View;
@@ -217,6 +218,13 @@ void CSubsurface::onCommit() {
     if (!m_windowParent.expired() && (!m_windowParent->mapped() || !m_windowParent->m_workspace->visible())) {
         m_lastSize = m_wlSurface->resource()->m_current.size;
 
+        // A window shown inside another one (src/embed) is seen through its host, though its own
+        // workspace is hidden: a commit redraws the host's box.
+        if (m_windowParent->mapped() && Embed::damageThroughHost(m_windowParent.lock())) {
+            m_lastPosition = m_subsurface->m_position;
+            return;
+        }
+
         static auto PLOGDAMAGE = CConfigValue<Config::INTEGER>("debug:log_damage");
         if (*PLOGDAMAGE)
             LOG(Log::DEBUG, "Refusing to commit damage from a subsurface of {} because it's invisible.", m_windowParent.lock());
@@ -337,6 +345,10 @@ Vector2D CSubsurface::coordsGlobal() const {
 
 Vector2D CSubsurface::renderScale() const {
     return Render::windowSubsurfaceScale(m_windowParent.lock());
+}
+
+PHLWINDOW CSubsurface::windowOwner() const {
+    return m_windowParent.lock();
 }
 
 void CSubsurface::initExistingSubsurfaces(SP<CWLSurfaceResource> pSurface) {

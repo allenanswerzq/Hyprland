@@ -1,8 +1,10 @@
 #include "State.hpp"
 
 #include "LifecyclePolicyAdapter.hpp"
+#include "../../actors/Actors.hpp"
 #include "../../config/shared/workspace/WorkspaceRuleManager.hpp"
 #include "../../debug/log/Logger.hpp"
+#include "../../output/Monitor.hpp"
 #include "../../workspace/RegularWorkspace.hpp"
 #include "../../workspace/SpecialWorkspace.hpp"
 #include "../../workspace/filter/WorkspaceFilter.hpp"
@@ -11,6 +13,20 @@
 #include <limits>
 
 using namespace State::Workspace;
+
+// A workspace rule may bind a workspace to a monitor. The rule only applies when that monitor
+// belongs to the same actor as the requested one, so rules never move workspaces across actors.
+static PHLMONITOR sameActorMonitor(std::optional<PHLMONITOR> bound, PHLMONITOR requested) {
+    if (!bound || !*bound)
+        return requested;
+
+    if (requested && Actors::actorOf(*bound) != Actors::actorOf(requested)) {
+        LOG(Log::DEBUG, "Ignoring workspace monitor rule for {}: it belongs to another actor", (*bound)->m_name);
+        return requested;
+    }
+
+    return *bound;
+}
 
 UP<CState>& State::Workspace::state() {
     static UP<CState> instance = makeUnique<CState>();
@@ -99,7 +115,7 @@ PHLWORKSPACE CState::createNumbered(::Workspace::SWorkspaceNumberedID id, PHLMON
         return nullptr;
     }
 
-    monitor = Config::workspaceRuleMgr()->getBoundMonitorForWS(id, ::Workspace::eWorkspaceType::NORMAL, ADDRESS).value_or(std::move(monitor));
+    monitor = sameActorMonitor(Config::workspaceRuleMgr()->getBoundMonitorForWS(id, ::Workspace::eWorkspaceType::NORMAL, ADDRESS), std::move(monitor));
     if (!monitor) {
         LOG(Log::ERR, "No monitor for new numbered workspace {}", id.value);
         return nullptr;
@@ -121,9 +137,16 @@ PHLWORKSPACE CState::createNamed(std::string address, PHLMONITOR monitor, std::s
         return nullptr;
     }
 
-    monitor = Config::workspaceRuleMgr()->getBoundMonitorForWS(::Workspace::SWorkspaceSpecialID{}, ::Workspace::eWorkspaceType::NORMAL, address).value_or(std::move(monitor));
+    monitor =
+        sameActorMonitor(Config::workspaceRuleMgr()->getBoundMonitorForWS(::Workspace::SWorkspaceSpecialID{}, ::Workspace::eWorkspaceType::NORMAL, address), std::move(monitor));
     if (!monitor || address.empty()) {
         LOG(Log::ERR, "No monitor or address for new named workspace {}", address);
+        return nullptr;
+    }
+
+    // Each agent owns the named workspace that matches its name, for example "agent-001".
+    if (Actors::isReservedWorkspaceName(address, Actors::actorOf(monitor))) {
+        LOG(Log::ERR, "Refusing to create named workspace {}: the name is reserved for an actor", address);
         return nullptr;
     }
 
@@ -146,7 +169,8 @@ PHLWORKSPACE CState::createSpecial(std::string address, PHLMONITOR monitor, bool
     if (address.size() == 8 || query().identity(::Workspace::SWorkspaceSpecialID{}, address, ::Workspace::eWorkspaceType::SPECIAL).run())
         return nullptr;
 
-    monitor = Config::workspaceRuleMgr()->getBoundMonitorForWS(::Workspace::SWorkspaceSpecialID{}, ::Workspace::eWorkspaceType::SPECIAL, address).value_or(std::move(monitor));
+    monitor =
+        sameActorMonitor(Config::workspaceRuleMgr()->getBoundMonitorForWS(::Workspace::SWorkspaceSpecialID{}, ::Workspace::eWorkspaceType::SPECIAL, address), std::move(monitor));
     if (!monitor)
         return nullptr;
 

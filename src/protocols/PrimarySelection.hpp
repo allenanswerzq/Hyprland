@@ -5,6 +5,7 @@
 #include "WaylandProtocol.hpp"
 #include "primary-selection-unstable-v1.hpp"
 #include "types/DataDevice.hpp"
+#include "../actors/ActorTypes.hpp"
 #include <hyprutils/os/FileDescriptor.hpp>
 
 class CPrimarySelectionOffer;
@@ -27,6 +28,7 @@ class CPrimarySelectionOffer {
     SP<CZwpPrimarySelectionOfferV1> m_resource;
 
     friend class CPrimarySelectionDevice;
+    friend class CPrimarySelectionProtocol;
 };
 
 class CPrimarySelectionSource : public IDataSource {
@@ -89,6 +91,11 @@ class CPrimarySelectionProtocol : public IWaylandProtocol {
     CPrimarySelectionProtocol(const wl_interface* iface, const int& ver, const std::string& name);
 
     virtual void bindManager(wl_client* client, void* data, uint32_t ver, uint32_t id);
+
+    // Same as the wl_data_device versions: each actor has its own primary selection.
+    void invalidateOffersFor(Actors::ActorID actor);
+    void invalidateOffersForClient(const wl_client* client);
+    void sendSelectionToClient(const wl_client* client, SP<IDataSource> source);
 
   private:
     void destroyResource(CPrimarySelectionManager* resource);

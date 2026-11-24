@@ -63,7 +63,7 @@ namespace IPC::Socket1 {
 
     class CUnixImpl : public IImplementation {
       public:
-        CUnixImpl();
+        explicit CUnixImpl(std::string directory = "");
         virtual ~CUnixImpl();
 
         virtual void start(FRequestHandler&& handler) override;
@@ -82,6 +82,7 @@ namespace IPC::Socket1 {
 
         Hyprutils::OS::CFileDescriptor m_socket;
         wl_event_source*               m_eventSource = nullptr;
+        std::string                    m_directory;
         std::string                    m_socketPath;
         FRequestHandler                m_requestHandler;
         std::vector<SP<CUnixPeer>>     m_peers;
