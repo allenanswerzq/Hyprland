@@ -10,6 +10,7 @@
 #include "../../layout/target/Target.hpp"
 #include "../../managers/fullscreen/FullscreenController.hpp"
 #include "../../actors/Actors.hpp"
+#include "../../embed/WindowEmbeds.hpp"
 #include "../../debug/log/Logger.hpp"
 
 using namespace Desktop;
@@ -30,11 +31,18 @@ void CGlobalWindowController::updateAllWindowsDecorations() const {
 
 void CGlobalWindowController::updateSuspendedStates() const {
     for (auto const& w : Desktop::windowState()->windows()) {
-        if (!w->mapped())
-            continue;
-
-        w->setSuspended(w->isHidden() || !w->m_workspace || !w->m_workspace->visible());
+        updateSuspendedState(w);
     }
+}
+
+void CGlobalWindowController::updateSuspendedState(const PHLWINDOW& window) const {
+    if (!window || !window->mapped())
+        return;
+
+    // A window embedded in another one (src/embed) is seen wherever its host is.
+    const auto HOST  = Embed::hostOf(window);
+    const auto SHOWN = HOST ? HOST : window;
+    window->setSuspended(SHOWN->isHidden() || !SHOWN->m_workspace || !SHOWN->m_workspace->visible());
 }
 
 void CGlobalWindowController::moveWindowToWorkspace(PHLWINDOW pWindow, PHLWORKSPACE pWorkspace) const {

@@ -20,8 +20,10 @@ namespace IPC::Socket1 {
     inside the agent's Chrome window. Input is not part of it: the host's client forwards
     whatever input the embedded window should get, by its own means.
 
-    An embedded window is not drawn anywhere else unless its own workspace is shown. A window
-    can be embedded in one host at a time, and a host cannot itself be embedded.
+    An embedded window is not drawn anywhere else unless its own workspace is shown. It is
+    suspended (xdg_toplevel's suspended state, which lets the client stop drawing) only when
+    its host is, so its client keeps sending frames while the host is visible. A window can be
+    embedded in one host at a time, and a host cannot itself be embedded.
 
     Every function is safe to call before init() or after destroy(): there are no embeds then.
 */

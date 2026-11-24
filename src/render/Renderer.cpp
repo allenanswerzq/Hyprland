@@ -2914,11 +2914,11 @@ void IHyprRenderer::sendFrameEventsToWorkspace(PHLMONITOR pMonitor, PHLWORKSPACE
 
         view->wlSurface()->resource()->frame(now);
 
-        // Windows shown inside this one draw at its pace (src/embed).
+        // Windows shown inside this one draw at its pace (src/embed), with all their surfaces.
         if (const auto WINDOW = Desktop::View::CWindow::fromView(view); WINDOW) {
             for (const auto& embed : Embed::embeddedIn(WINDOW)) {
                 if (const auto EMBEDDED = embed.window.lock(); EMBEDDED && EMBEDDED->wlSurface() && EMBEDDED->wlSurface()->resource())
-                    EMBEDDED->wlSurface()->resource()->frame(now);
+                    EMBEDDED->wlSurface()->resource()->breadthfirst([&now](SP<CWLSurfaceResource> surface, const Vector2D&, void*) { surface->frame(now); }, nullptr);
             }
         }
     }
