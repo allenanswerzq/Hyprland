@@ -1,5 +1,8 @@
-// A window that shows in its title whether Hyprland suspends it: "<app id> suspended" or
-// "<app id> visible", from the suspended state of xdg_toplevel's configure events.
+// A window that shows in its title whether Hyprland suspends it, and how many frames its child
+// surface has drawn: "<app id> suspended frames=N" or "<app id> visible frames=N". The state comes
+// from xdg_toplevel's configure events. The child, a subsurface, draws a pixel each time Hyprland
+// tells it a frame is done, so the count grows only while Hyprland sends the child frames; the
+// title follows every 30 frames.
 
 #include <algorithm>
 #include <cstddef>
@@ -24,27 +27,36 @@ using Hyprutils::Math::Vector2D;
 using namespace Hyprutils::Memory;
 
 struct SState {
-    wl_display*                    display = nullptr;
-    CSharedPointer<CCWlRegistry>   registry;
-    CSharedPointer<CCWlCompositor> compositor;
-    CSharedPointer<CCWlShm>        shm;
-    CSharedPointer<CCXdgWmBase>    xdgWm;
+    wl_display*                       display = nullptr;
+    CSharedPointer<CCWlRegistry>      registry;
+    CSharedPointer<CCWlCompositor>    compositor;
+    CSharedPointer<CCWlSubcompositor> subcompositor;
+    CSharedPointer<CCWlShm>           shm;
+    CSharedPointer<CCXdgWmBase>       xdgWm;
 
-    CSharedPointer<CCWlShmPool>    shmPool;
-    CSharedPointer<CCWlBuffer>     shmBuffer;
-    int                            shmFD   = -1;
-    size_t                         shmSize = 0;
-    bool                           hasXRGB = false;
+    CSharedPointer<CCWlShmPool>       shmPool;
+    CSharedPointer<CCWlBuffer>        shmBuffer;
+    int                               shmFD   = -1;
+    size_t                            shmSize = 0;
+    bool                              hasXRGB = false;
 
-    CSharedPointer<CCWlSurface>    surface;
-    CSharedPointer<CCXdgSurface>   xdgSurface;
-    CSharedPointer<CCXdgToplevel>  toplevel;
-    Vector2D                       geometry = {640, 480};
+    CSharedPointer<CCWlSurface>       surface;
+    CSharedPointer<CCXdgSurface>      xdgSurface;
+    CSharedPointer<CCXdgToplevel>     toplevel;
+    Vector2D                          geometry = {640, 480};
 
-    std::string                    appID;
-    bool                           suspended = false;
-    std::string                    title;
-    bool                           shouldExit = false;
+    CSharedPointer<CCWlSurface>       child;
+    CSharedPointer<CCWlSubsurface>    subsurface;
+    CSharedPointer<CCWlBuffer>        childBuffer;
+    // The frame callback waited on, and the one that last fired, kept until its handler returns.
+    CSharedPointer<CCWlCallback> childFrame, childFrameDone;
+    size_t                       childFrames = 0;
+
+    std::string                  appID;
+    bool                         suspended = false;
+    std::string                  title;
+    std::string                  logged;
+    bool                         shouldExit = false;
 };
 
 static void clientLog(const std::string& message) {
@@ -60,6 +72,8 @@ static bool bindGlobals(SState& state) {
         if (INTERFACE == "wl_compositor")
             state.compositor =
                 makeShared<CCWlCompositor>(rc<wl_proxy*>(wl_registry_bind(rc<wl_registry*>(registry->resource()), id, &wl_compositor_interface, std::min(version, 6U))));
+        else if (INTERFACE == "wl_subcompositor")
+            state.subcompositor = makeShared<CCWlSubcompositor>(rc<wl_proxy*>(wl_registry_bind(rc<wl_registry*>(registry->resource()), id, &wl_subcompositor_interface, 1)));
         else if (INTERFACE == "wl_shm")
             state.shm = makeShared<CCWlShm>(rc<wl_proxy*>(wl_registry_bind(rc<wl_registry*>(registry->resource()), id, &wl_shm_interface, 1)));
         else if (INTERFACE == "xdg_wm_base" && version >= 6) // the suspended state is since 6
@@ -68,7 +82,7 @@ static bool bindGlobals(SState& state) {
     state.registry->setGlobalRemove([](CCWlRegistry*, uint32_t) {});
 
     wl_display_roundtrip(state.display);
-    return state.compositor && state.shm && state.xdgWm;
+    return state.compositor && state.subcompositor && state.shm && state.xdgWm;
 }
 
 static bool createBuffer(SState& state) {
@@ -117,6 +131,52 @@ static bool createBuffer(SState& state) {
     return state.shmBuffer && state.shmBuffer->resource();
 }
 
+static void updateTitle(SState& state) {
+    const auto STATE = state.suspended ? "suspended" : "visible";
+    const auto TITLE = std::format("{} {} frames={}", state.appID, STATE, state.childFrames);
+    if (TITLE == state.title)
+        return;
+
+    state.title = TITLE;
+    state.toplevel->sendSetTitle(TITLE.c_str());
+    if (const auto LOGGED = std::format("{} {}", state.appID, STATE); LOGGED != state.logged) {
+        state.logged = LOGGED;
+        clientLog(LOGGED);
+    }
+}
+
+// Draws the child's pixel again, and asks for the next frame. The child is desynchronized, so each
+// commit shows on its own, and its damage makes Hyprland draw it again.
+static void drawChild(SState& state) {
+    state.childFrameDone = state.childFrame;
+    state.childFrame     = makeShared<CCWlCallback>(state.child->sendFrame());
+    state.childFrame->setDone([&state](CCWlCallback*, uint32_t) {
+        if (++state.childFrames % 30 == 0)
+            updateTitle(state);
+        drawChild(state);
+    });
+    state.child->sendAttach(state.childBuffer.get(), 0, 0);
+    state.child->sendDamageBuffer(0, 0, 1, 1);
+    state.child->sendCommit();
+}
+
+// The child: a one pixel subsurface at the window's top left corner, drawn from the shm pool.
+static bool setupChild(SState& state) {
+    state.child = makeShared<CCWlSurface>(state.compositor->sendCreateSurface());
+    if (!state.child->resource())
+        return false;
+
+    state.subsurface  = makeShared<CCWlSubsurface>(state.subcompositor->sendGetSubsurface(state.child.get(), state.surface.get()));
+    state.childBuffer = makeShared<CCWlBuffer>(state.shmPool->sendCreateBuffer(0, 1, 1, 4, WL_SHM_FORMAT_XRGB8888));
+    if (!state.subsurface->resource() || !state.childBuffer->resource())
+        return false;
+
+    state.subsurface->sendSetPosition(0, 0);
+    state.subsurface->sendSetDesync();
+    drawChild(state);
+    return true;
+}
+
 static bool setupSurface(SState& state) {
     state.shm->setFormat([&state](CCWlShm*, uint32_t format) {
         if (format == WL_SHM_FORMAT_XRGB8888)
@@ -151,11 +211,11 @@ static bool setupSurface(SState& state) {
         }
 
         state.xdgSurface->sendAckConfigure(serial);
+        updateTitle(state);
 
-        if (const auto TITLE = std::format("{} {}", state.appID, state.suspended ? "suspended" : "visible"); TITLE != state.title) {
-            state.title = TITLE;
-            state.toplevel->sendSetTitle(TITLE.c_str());
-            clientLog(TITLE);
+        if (!state.child && !setupChild(state)) {
+            state.shouldExit = true;
+            return;
         }
 
         state.xdgSurface->sendSetWindowGeometry(0, 0, state.geometry.x, state.geometry.y);
@@ -177,6 +237,11 @@ static void disconnect(SState& state) {
 
     state.toplevel.reset();
     state.xdgSurface.reset();
+    state.childFrame.reset();
+    state.childFrameDone.reset();
+    state.subsurface.reset();
+    state.childBuffer.reset();
+    state.child.reset();
     state.surface.reset();
     state.shmBuffer.reset();
     state.shmPool.reset();
