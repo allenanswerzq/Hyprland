@@ -22,8 +22,9 @@ namespace IPC::Socket1 {
 
     An embedded window is not drawn anywhere else unless its own workspace is shown. It is
     suspended (xdg_toplevel's suspended state, which lets the client stop drawing) only when
-    its host is, so its client keeps sending frames while the host is visible. A window can be
-    embedded in one host at a time, and a host cannot itself be embedded.
+    neither its own workspace nor its host is seen, so its client keeps sending frames while
+    either shows it. A window can be embedded in one host at a time, and a host cannot itself
+    be embedded.
 
     Every function is safe to call before init() or after destroy(): there are no embeds then.
 */
