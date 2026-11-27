@@ -3,6 +3,7 @@
 #include "MonitorPositionController.hpp"
 #include "MonitorState.hpp"
 
+#include "../actors/Actors.hpp"
 #include "../config/ConfigValue.hpp"
 #include "../debug/log/Logger.hpp"
 #include "../event/EventBus.hpp"
@@ -71,7 +72,10 @@ void CMonitorLayoutController::arrange() const {
     LOG(Log::DEBUG, "arrangeMonitors: {} to arrange", arrangeableMonitors.size());
     State::monitorPositionController()->arrange(arrangeableMonitors, *PXWLFORCESCALEZERO);
 
-    for (const auto& m : State::monitorState()->monitors()) {
+    // Agent monitors sit outside the human layout, placed by the actors module.
+    Actors::placeAgentMonitors();
+
+    for (const auto& m : State::monitorState()->renderMonitors()) {
         g_pHyprRenderer->arrangeLayersForMonitor(m->m_id);
     }
 

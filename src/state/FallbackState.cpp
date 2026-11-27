@@ -1,6 +1,7 @@
 #include "FallbackState.hpp"
 #include "MonitorState.hpp"
 
+#include "../actors/Actors.hpp"
 #include "../Compositor.hpp"
 #include "../event/EventBus.hpp"
 #include "../output/Monitor.hpp"
@@ -25,6 +26,10 @@ CFallbackStateKeeper::~CFallbackStateKeeper() = default;
 
 void CFallbackStateKeeper::initSignals() {
     m_listeners.monitorRemoved = Event::bus()->m_events.monitor.removed.listen([this](PHLMONITOR removed) {
+        // Agent monitors are hidden from the human, so they never start or end the fallback.
+        if (Actors::isAgentMonitor(removed))
+            return;
+
         if (State::monitorState()->monitors().size() > 1)
             return;
 
@@ -57,7 +62,7 @@ void CFallbackStateKeeper::initSignals() {
         if (!m_fallbackActive)
             return;
 
-        if (added == m_fallbackOutput)
+        if (added == m_fallbackOutput || Actors::isAgentMonitor(added))
             return;
 
         LOG(Log::DEBUG, "[FallbackStateKeeper] Monitor {} added, leaving fallback", added->m_name);

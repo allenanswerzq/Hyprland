@@ -1,6 +1,7 @@
 #include "LifecyclePolicyAdapter.hpp"
 
 #include "LifecyclePolicy.hpp"
+#include "../../actors/Actors.hpp"
 #include "../../animation/WorkspaceAnimationController.hpp"
 #include "../../config/shared/workspace/WorkspaceRuleManager.hpp"
 #include "../../debug/log/Logger.hpp"
@@ -45,16 +46,24 @@ static SMonitorSnapshot monitorSnapshot(const PHLMONITOR& monitor) {
 
 class CHyprlandPolicyContext final : public IPolicyContext {
   public:
-    CHyprlandPolicyContext(PHLMONITOR eventMonitor) : m_eventMonitor(std::move(eventMonitor)), m_transitionWorkspaces(state()->workspacesCopy()) {
+    // Each actor has its own desktop, so the policy only sees monitors and workspaces of the
+    // event monitor's actor. A human monitor unplug never moves agent workspaces, and the
+    // other way around.
+    CHyprlandPolicyContext(PHLMONITOR eventMonitor) :
+        m_eventMonitor(std::move(eventMonitor)), m_actor(Actors::actorOf(m_eventMonitor)), m_transitionWorkspaces(state()->workspacesCopy()) {
         ;
     }
 
     std::vector<SMonitorSnapshot> monitors() const override {
         std::vector<SMonitorSnapshot> snapshots;
-        snapshots.reserve(State::monitorState()->monitors().size() + 1);
+        snapshots.reserve(State::monitorState()->renderMonitors().size() + 1);
 
-        for (const auto& monitor : State::monitorState()->monitors())
+        for (const auto& monitor : State::monitorState()->renderMonitors()) {
+            if (Actors::actorOf(monitor) != m_actor)
+                continue;
+
             snapshots.emplace_back(monitorSnapshot(monitor));
+        }
 
         if (m_eventMonitor && std::ranges::none_of(snapshots, [&](const auto& candidate) { return candidate.address == m_eventMonitor->m_name; }))
             snapshots.emplace_back(monitorSnapshot(m_eventMonitor));
@@ -70,6 +79,9 @@ class CHyprlandPolicyContext final : public IPolicyContext {
             if (!workspace)
                 continue;
 
+            if (workspace->actor() != m_actor)
+                continue;
+
             const auto MONITOR = workspace->m_monitor.lock();
             snapshots.emplace_back(SWorkspaceSnapshot{
                 .identity       = workspaceIdentity(workspace.lock()),
@@ -82,7 +94,7 @@ class CHyprlandPolicyContext final : public IPolicyContext {
 
     std::optional<SWorkspaceIdentity> configuredDefaultWorkspace(std::string_view monitorAddress) const override {
         const auto MONITOR = findMonitor(monitorAddress);
-        if (!MONITOR)
+        if (!MONITOR || Actors::isAgentMonitor(MONITOR))
             return std::nullopt;
 
         const auto CONFIGURED = Config::workspaceRuleMgr()->getDefaultWorkspaceFor(*MONITOR);
@@ -105,6 +117,14 @@ class CHyprlandPolicyContext final : public IPolicyContext {
         const auto MONITOR = findMonitor(monitorAddress);
         if (!MONITOR)
             return {};
+
+        // An agent has exactly one workspace, named after the agent.
+        if (Actors::isAgentMonitor(MONITOR)) {
+            return {{
+                .identity            = SWorkspaceIdentity{::Workspace::SWorkspaceSpecialID{}, Actors::nameOf(MONITOR->m_actor), ::Workspace::eWorkspaceType::NORMAL},
+                .boundMonitorAddress = std::nullopt,
+            }};
+        }
 
         for (::Workspace::WorkspaceIDContainer id = 1; id < std::numeric_limits<::Workspace::WorkspaceIDContainer>::max(); ++id) {
             const auto               ADDRESS = std::to_string(id);
@@ -165,8 +185,12 @@ class CHyprlandPolicyContext final : public IPolicyContext {
         if (m_eventMonitor && m_eventMonitor->m_name == address)
             return m_eventMonitor;
 
-        const auto MONITOR = std::ranges::find(State::monitorState()->monitors(), address, &Monitor::CMonitor::m_name);
-        return MONITOR == State::monitorState()->monitors().end() ? nullptr : *MONITOR;
+        const auto& MONITORS = State::monitorState()->renderMonitors();
+        const auto  MONITOR  = std::ranges::find(MONITORS, address, &Monitor::CMonitor::m_name);
+        if (MONITOR == MONITORS.end() || Actors::actorOf(*MONITOR) != m_actor)
+            return nullptr;
+
+        return *MONITOR;
     }
 
     static PHLWORKSPACE findWorkspace(const SWorkspaceIdentity& identity) {
@@ -174,6 +198,7 @@ class CHyprlandPolicyContext final : public IPolicyContext {
     }
 
     PHLMONITOR                m_eventMonitor;
+    Actors::ActorID           m_actor;
     std::vector<PHLWORKSPACE> m_transitionWorkspaces;
     PHLWORKSPACE              m_createdWorkspace;
 };

@@ -14,6 +14,7 @@
 #include "../../layout/target/WindowTarget.hpp"
 #include "../../event/EventBus.hpp"
 #include "../../workspace/query/Query.hpp"
+#include "../../actors/Actors.hpp"
 
 using namespace Desktop;
 
@@ -73,6 +74,10 @@ static SFullscreenWorkspaceFocusResult onFullscreenWorkspaceFocusWindow(PHLWINDO
 }
 
 void CFocusState::fullWindowFocus(PHLWINDOW pWindow, eFocusReason reason, SP<CWLSurfaceResource> surface, bool forceFSCycle) {
+    // Human input never moves the focus of an agent's window.
+    if (Actors::refuseHumanFocus(pWindow, reason))
+        return;
+
     if (pWindow) {
         if (!pWindow->m_workspace)
             return;
@@ -98,6 +103,10 @@ void CFocusState::fullWindowFocus(PHLWINDOW pWindow, eFocusReason reason, SP<CWL
 void CFocusState::rawWindowFocus(PHLWINDOW pWindow, eFocusReason reason, SP<CWLSurfaceResource> surface) {
     static auto PFOLLOWMOUSE        = CConfigValue<Config::INTEGER>("input:follow_mouse");
     static auto PSPECIALFALLTHROUGH = CConfigValue<Config::INTEGER>("input:special_fallthrough");
+
+    // A window the human does not control gets focus from its agent's seat.
+    if (Actors::routeWindowFocus(pWindow, reason, surface))
+        return;
 
     if (pWindow == m_focusWindow && surface == m_focusSurface && m_focusSurface)
         return;
@@ -229,6 +238,10 @@ void CFocusState::rawWindowFocus(PHLWINDOW pWindow, eFocusReason reason, SP<CWLS
 }
 
 void CFocusState::rawSurfaceFocus(SP<CWLSurfaceResource> pSurface, PHLWINDOW pWindowOwner) {
+    // A surface of an agent client gets keyboard focus from its agent seat.
+    if (Actors::routeSurfaceFocus(pSurface))
+        return;
+
     if (g_pSeatManager->m_state.keyboardFocus == pSurface || (pWindowOwner && g_pSeatManager->m_state.keyboardFocus == pWindowOwner->wlSurface()->resource()))
         return; // Don't focus when already focused on this.
 
@@ -273,6 +286,10 @@ void CFocusState::rawMonitorFocus(PHLMONITOR pMonitor) {
     if (m_focusMonitor == pMonitor)
         return;
 
+    // The human cannot focus an agent monitor. It is not part of the human layout.
+    if (Actors::isAgentMonitor(pMonitor))
+        return;
+
     if (!pMonitor) {
         m_focusMonitor.reset();
         return;
@@ -308,6 +325,9 @@ void CFocusState::resetWindowFocus() {
 }
 
 bool CFocusState::isWindowActive(PHLWINDOW pWindow) const {
+    if (const auto AGENT_ACTIVE = Actors::agentWindowActive(pWindow); AGENT_ACTIVE)
+        return *AGENT_ACTIVE;
+
     const auto FOCUSWINDOW  = m_focusWindow.lock();
     const auto FOCUSSURFACE = m_focusSurface.lock();
 

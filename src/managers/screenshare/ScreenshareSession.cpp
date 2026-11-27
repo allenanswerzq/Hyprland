@@ -4,6 +4,7 @@
 #include "../../Compositor.hpp"
 #include "../../render/Renderer.hpp"
 #include "../../ipc/s2/S2.hpp"
+#include "../../actors/Actors.hpp"
 #include "../eventLoop/EventLoopManager.hpp"
 #include "../../event/EventBus.hpp"
 
@@ -190,20 +191,28 @@ void CScreenshareSession::calculateConstraints() {
 
 void CScreenshareSession::screenshareEvents(bool startSharing) {
     m_stale = !startSharing;
+
+    // The events go to the actor whose client captures. The config is the human's, so it hears
+    // only about the human's captures.
+    const auto ACTOR = Actors::ownerOf(m_client).value_or(Actors::HUMAN_ACTOR_ID);
+    const bool HUMAN = !Actors::isAgent(ACTOR);
+
     if (startSharing && !m_sharing) {
         m_sharing = true;
-        IPC::Socket2::sock()->postEvent({.event = "screencast", .data = std::format("1,{}", m_type)});
-        IPC::Socket2::sock()->postEvent({.event = "screencastv2", .data = std::format("1,{},{}", m_type, m_name)});
+        IPC::Socket2::sock()->postEvent({.event = "screencast", .data = std::format("1,{}", m_type), .subject = ACTOR});
+        IPC::Socket2::sock()->postEvent({.event = "screencastv2", .data = std::format("1,{},{}", m_type, m_name), .subject = ACTOR});
         LOG(Log::INFO, "Started screenshare session for ({}): {}", m_type, m_name);
 
-        Event::bus()->m_events.screenshare.state.emit(true, m_type, m_name);
+        if (HUMAN)
+            Event::bus()->m_events.screenshare.state.emit(true, m_type, m_name);
     } else if (!startSharing && m_sharing) {
         m_sharing = false;
-        IPC::Socket2::sock()->postEvent({.event = "screencast", .data = std::format("0,{}", m_type)});
-        IPC::Socket2::sock()->postEvent({.event = "screencastv2", .data = std::format("0,{},{}", m_type, m_name)});
+        IPC::Socket2::sock()->postEvent({.event = "screencast", .data = std::format("0,{}", m_type), .subject = ACTOR});
+        IPC::Socket2::sock()->postEvent({.event = "screencastv2", .data = std::format("0,{},{}", m_type, m_name), .subject = ACTOR});
         LOG(Log::INFO, "Stopped screenshare session for ({}): {}", m_type, m_name);
 
-        Event::bus()->m_events.screenshare.state.emit(false, m_type, m_name);
+        if (HUMAN)
+            Event::bus()->m_events.screenshare.state.emit(false, m_type, m_name);
     }
 }
 

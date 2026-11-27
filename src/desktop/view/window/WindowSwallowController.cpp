@@ -13,6 +13,7 @@
 #include "../../../layout/space/Space.hpp"
 #include "../../../layout/target/WindowTarget.hpp"
 #include "../../../managers/fullscreen/FullscreenTypes.hpp"
+#include "../../../actors/Actors.hpp"
 
 #include <algorithm>
 #include <ranges>
@@ -54,6 +55,8 @@ PHLWINDOW CWindowSwallowController::findCandidate() const {
 
     std::vector<PHLWINDOW> candidates;
     pid_t                  currentPid = m_window.backend().pid();
+    // An agent launched from a human terminal must not swallow that terminal.
+    const auto CONTROLLER = Actors::controllerOf(m_window.m_self.lock());
 
     for (size_t i = 0; i < 25; ++i) {
         currentPid = getPPIDof(currentPid);
@@ -63,6 +66,9 @@ PHLWINDOW CWindowSwallowController::findCandidate() const {
 
         for (const auto& w : Desktop::windowState()->windows()) {
             if (!w->mapped() || !w->acceptsInput())
+                continue;
+
+            if (Actors::controllerOf(w) != CONTROLLER)
                 continue;
 
             if (w->backend().pid() == currentPid)

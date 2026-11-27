@@ -102,7 +102,7 @@ void CHyprDropShadowDecoration::damageEntire() {
 
     CRegion shadowRegion(shadowBox);
 
-    for (auto const& m : State::monitorState()->monitors()) {
+    for (auto const& m : State::monitorState()->renderMonitors()) {
         if (!g_pHyprRenderer->shouldRenderWindow(PWINDOW, m)) {
             const CRegion monitorRegion({m->m_position, m->m_size});
             shadowRegion.subtract(monitorRegion);

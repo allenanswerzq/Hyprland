@@ -18,6 +18,7 @@
 #include "../../state/MonitorState.hpp"
 #include "protocols/types/SurfaceRole.hpp"
 #include "render/Texture.hpp"
+#include "../../actors/Actors.hpp"
 #include <cstring>
 
 using namespace NColorManagement;
@@ -356,7 +357,8 @@ void CWLSurfaceResource::enter(PHLMONITOR monitor) {
         return;
     }
 
-    auto outputs = PROTO::outputs.at(monitor->m_name)->outputResourcesFrom(m_client);
+    // A borrowed client cannot see the human outputs. It sees private proxies for them.
+    auto outputs = Actors::outputResourcesFor(monitor, m_client);
 
     if UNLIKELY (outputs.empty() || std::ranges::all_of(outputs, [](const auto& o) { return !o->getResource() || !o->getResource()->resource(); })) {
         LOG(Log::ERR, "Cannot enter surface {:x} to {}, client hasn't bound the output", (uintptr_t)this, monitor->m_name);
@@ -377,7 +379,7 @@ void CWLSurfaceResource::leave(PHLMONITOR monitor) {
     if UNLIKELY (std::ranges::find(m_enteredOutputs, monitor) == m_enteredOutputs.end())
         return;
 
-    auto outputs = PROTO::outputs.at(monitor->m_name)->outputResourcesFrom(m_client);
+    auto outputs = Actors::outputResourcesFor(monitor, m_client);
 
     if UNLIKELY (outputs.empty() || std::ranges::all_of(outputs, [](const auto& o) { return !o->getResource() || !o->getResource()->resource(); })) {
         LOG(Log::ERR, "Cannot leave surface {:x} from {}, client hasn't bound the output", (uintptr_t)this, monitor->m_name);
@@ -777,7 +779,7 @@ bool CWLSurfaceResource::hasVisibleSubsurface() {
 
 bool CWLSurfaceResource::isTearing() {
     if (m_enteredOutputs.empty() && m_hlSurface) {
-        for (auto& m : State::monitorState()->monitors()) {
+        for (auto& m : State::monitorState()->renderMonitors()) {
             if (!m || !m->m_enabled)
                 continue;
 

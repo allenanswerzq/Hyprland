@@ -31,7 +31,7 @@ class CWLOutputResource {
 
 class CWLOutputProtocol : public IWaylandProtocol {
   public:
-    CWLOutputProtocol(const wl_interface* iface, const int& ver, const std::string& name, PHLMONITOR pMonitor);
+    CWLOutputProtocol(const wl_interface* iface, const int& ver, const std::string& name, PHLMONITOR pMonitor, FClientFilter clientFilter = {});
 
     virtual void                       bindManager(wl_client* client, void* data, uint32_t ver, uint32_t id);
 

@@ -22,6 +22,7 @@
 #include "../surfaceTree/PopupOwner.hpp"
 #include "../surfaceTree/SubsurfaceOwner.hpp"
 #include "WindowBackend.hpp"
+#include "../../../actors/ActorTypes.hpp"
 
 class CMonitorWindowTransactionTest;
 
@@ -131,15 +132,17 @@ namespace Desktop::View {
 
     class CWindow : public virtual IView, public virtual CGeometricMovableAnimated, public virtual IAlphaModifiable, public virtual CPopupOwner, public virtual CSubsurfaceOwner {
       public:
-        static PHLWINDOW create(UP<IWindowBackend> backend);
+        // owner is the actor whose socket the window's client connected to.
+        static PHLWINDOW create(UP<IWindowBackend> backend, Actors::ActorID owner = Actors::HUMAN_ACTOR_ID);
         static PHLWINDOW fromView(SP<IView>);
 
       private:
-        CWindow(UP<IWindowBackend> backend);
+        CWindow(UP<IWindowBackend> backend, Actors::ActorID owner);
 
       public:
         virtual ~CWindow();
 
+        Actors::ActorID                                           owner() const;
         IWindowBackend&                                           backend();
         const IWindowBackend&                                     backend() const;
         CWindowEffectsController&                                 effects();
@@ -339,6 +342,7 @@ namespace Desktop::View {
         UP<CWindowGroupMembership>   m_grouping;
         UP<CWindowSwallowController> m_swallowing;
         UP<CWindowFullscreenPolicy>  m_fullscreenPolicy;
+        const Actors::ActorID        m_owner;
         UP<IWindowBackend>           m_backend;
         UP<CWindowMetadata>          m_metadata;
         UP<CWindowPresentation>      m_presentation;

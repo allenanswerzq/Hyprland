@@ -2,6 +2,7 @@
 #include "Compositor.hpp"
 #include "../../Compositor.hpp"
 #include "../../output/Monitor.hpp"
+#include "../../actors/Actors.hpp"
 
 CWLOutputResource::CWLOutputResource(SP<CWlOutput> resource_, PHLMONITOR pMonitor, WP<CWLOutputProtocol> owner) : m_monitor(pMonitor), m_owner(owner), m_resource(resource_) {
     if UNLIKELY (!good())
@@ -81,15 +82,16 @@ void CWLOutputResource::updateState() {
 
     m_resource->sendMode(WL_OUTPUT_MODE_CURRENT, m_monitor->m_pixelSize.x, m_monitor->m_pixelSize.y, m_monitor->m_refreshRate * 1000.0);
 
-    m_resource->sendGeometry(m_monitor->m_position.x, m_monitor->m_position.y, m_monitor->m_output->physicalSize.x, m_monitor->m_output->physicalSize.y,
-                             m_monitor->m_output->subpixel, m_monitor->m_output->make.c_str(), m_monitor->m_output->model.c_str(), m_monitor->m_transform);
+    const auto POS = Actors::outputPosition(m_monitor.lock(), m_monitor->m_position);
+    m_resource->sendGeometry(POS.x, POS.y, m_monitor->m_output->physicalSize.x, m_monitor->m_output->physicalSize.y, m_monitor->m_output->subpixel,
+                             m_monitor->m_output->make.c_str(), m_monitor->m_output->model.c_str(), m_monitor->m_transform);
 
     if (m_resource->version() >= 2)
         m_resource->sendDone();
 }
 
-CWLOutputProtocol::CWLOutputProtocol(const wl_interface* iface, const int& ver, const std::string& name, PHLMONITOR pMonitor) :
-    IWaylandProtocol(iface, ver, name), m_monitor(pMonitor), m_name(pMonitor->m_name) {
+CWLOutputProtocol::CWLOutputProtocol(const wl_interface* iface, const int& ver, const std::string& name, PHLMONITOR pMonitor, FClientFilter clientFilter) :
+    IWaylandProtocol(iface, ver, name, std::move(clientFilter)), m_monitor(pMonitor), m_name(pMonitor->m_name) {
 
     m_listeners.modeChanged = m_monitor->m_events.modeChanged.listen([this] {
         for (auto const& o : m_outputs) {

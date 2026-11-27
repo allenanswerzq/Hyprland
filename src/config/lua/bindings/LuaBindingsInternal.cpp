@@ -1,5 +1,6 @@
 #include "LuaBindingsInternal.hpp"
 
+#include "../../../actors/Actors.hpp"
 #include "../../../desktop/rule/windowRule/WindowRule.hpp"
 #include "../../../state/MonitorState.hpp"
 #include "../../../state/WorkspaceState.hpp"
@@ -79,7 +80,7 @@ PHLMONITOR Internal::monitorFromLuaSelectorOrObject(lua_State* L, int idx, const
     return nullptr;
 }
 
-PHLWORKSPACE Internal::workspaceFromLuaSelectorOrObject(lua_State* L, int idx, const char* fnName) {
+static PHLWORKSPACE workspaceFromLuaSelectorOrObjectAnyActor(lua_State* L, int idx, const char* fnName) {
     idx = lua_absindex(L, idx);
 
     if (lua_isnil(L, idx))
@@ -94,7 +95,7 @@ PHLWORKSPACE Internal::workspaceFromLuaSelectorOrObject(lua_State* L, int idx, c
     }
 
     if (lua_isstring(L, idx) || lua_isnumber(L, idx)) {
-        const auto TARGET = State::Workspace::resolver()->getWorkspaceTargetFromString(argStr(L, idx));
+        const auto TARGET = State::Workspace::resolver()->getWorkspaceTargetFromString(Internal::argStr(L, idx));
         if (!TARGET.valid())
             return nullptr;
 
@@ -109,7 +110,13 @@ PHLWORKSPACE Internal::workspaceFromLuaSelectorOrObject(lua_State* L, int idx, c
     return nullptr;
 }
 
-PHLWINDOW Internal::windowFromLuaSelectorOrObject(lua_State* L, int idx, const char* fnName) {
+// The config is the human's: a workspace or window on an agent's desktop resolves to nothing.
+PHLWORKSPACE Internal::workspaceFromLuaSelectorOrObject(lua_State* L, int idx, const char* fnName) {
+    const auto WORKSPACE = workspaceFromLuaSelectorOrObjectAnyActor(L, idx, fnName);
+    return Actors::humanSees(WORKSPACE) ? WORKSPACE : nullptr;
+}
+
+static PHLWINDOW windowFromLuaSelectorOrObjectAnyActor(lua_State* L, int idx, const char* fnName) {
     idx = lua_absindex(L, idx);
 
     if (lua_isnil(L, idx))
@@ -119,10 +126,15 @@ PHLWINDOW Internal::windowFromLuaSelectorOrObject(lua_State* L, int idx, const c
         return ref->lock();
 
     if (lua_isstring(L, idx) || lua_isnumber(L, idx))
-        return Desktop::viewState()->query().selector(argStr(L, idx)).runWindow();
+        return Desktop::viewState()->query().selector(Internal::argStr(L, idx)).runWindow();
 
     Internal::configError(L, "{}: expected a window object or selector", fnName);
     return nullptr;
+}
+
+PHLWINDOW Internal::windowFromLuaSelectorOrObject(lua_State* L, int idx, const char* fnName) {
+    const auto WINDOW = windowFromLuaSelectorOrObjectAnyActor(L, idx, fnName);
+    return Actors::humanSees(WINDOW) ? WINDOW : nullptr;
 }
 
 std::optional<PHLMONITOR> Internal::tableOptMonitor(lua_State* L, int idx, const char* field, const char* fnName) {

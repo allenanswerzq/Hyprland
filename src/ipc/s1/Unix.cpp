@@ -215,7 +215,7 @@ void CUnixPeer::markFollowing() {
     m_state = eState::FOLLOWING;
 }
 
-CUnixImpl::CUnixImpl() : m_socket(socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0)) {
+CUnixImpl::CUnixImpl(std::string directory) : m_socket(socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0)), m_directory(std::move(directory)) {
     ;
 }
 
@@ -239,7 +239,7 @@ void CUnixImpl::start(FRequestHandler&& handler) {
     }
 
     sockaddr_un address = {.sun_family = AF_UNIX};
-    m_socketPath        = std::format("{}/.socket.sock", g_pCompositor->m_instancePath);
+    m_socketPath        = std::format("{}/.socket.sock", m_directory.empty() ? g_pCompositor->m_instancePath : m_directory);
 
     if (m_socketPath.size() > sizeof(address.sun_path) - 1) {
         LOG(Log::ERR, "[Socket1::Unix] socket path is too long");

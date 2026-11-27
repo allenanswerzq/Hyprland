@@ -83,14 +83,14 @@ bool CUnixPeer::addEvent(const SP<std::string>& x) {
     return true;
 }
 
-CUnixImpl::CUnixImpl() : m_socket(socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0)) {
+CUnixImpl::CUnixImpl(std::string directory) : m_socket(socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0)) {
     if (!m_socket.isValid()) {
         LOG(Log::ERR, "[Socket2::UnixImpl] Couldn't start the Hyprland Socket 2. (1) IPC will not work.");
         return;
     }
 
     sockaddr_un SERVERADDRESS = {.sun_family = AF_UNIX};
-    const auto  PATH          = std::format("{}/.socket2.sock", g_pCompositor->m_instancePath);
+    const auto  PATH          = std::format("{}/.socket2.sock", directory.empty() ? g_pCompositor->m_instancePath : directory);
     if (PATH.length() > sizeof(SERVERADDRESS.sun_path) - 1) {
         LOG(Log::ERR, "[Socket2::UnixImpl] path is too long. (2) IPC will not work.");
         return;

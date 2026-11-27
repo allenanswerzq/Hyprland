@@ -1,6 +1,7 @@
 #include "MonitorQuery.hpp"
 #include "MonitorQueryCore.hpp"
 #include "MonitorStateTracker.hpp"
+#include "../actors/Actors.hpp"
 
 #include <utility>
 #include <vector>
@@ -61,10 +62,40 @@ CMonitorQuery&& CMonitorQuery::includeDisabled(bool inc) && {
     return std::move(*this);
 }
 
+CMonitorQuery&& CMonitorQuery::actor(Actors::ActorID actor) && {
+    m_actor = actor;
+    return std::move(*this);
+}
+
+std::optional<Actors::ActorID> CMonitorQuery::actorFilter() const {
+    if (m_actor)
+        return m_actor;
+
+    if (!m_str && !m_configString && !m_dir)
+        return std::nullopt;
+
+    return m_relativeTo && *m_relativeTo ? Actors::actorOf(*m_relativeTo) : Actors::HUMAN_ACTOR_ID;
+}
+
 PHLMONITOR CMonitorQuery::run() && {
+    const auto                                  ACTOR = actorFilter();
+
     std::vector<SP<Monitor::IMonitorQueryable>> queryableMonitors;
     queryableMonitors.reserve(mons().size());
     for (const auto& m : mons()) {
+        if (ACTOR && Actors::actorOf(m) != *ACTOR)
+            continue;
+
+        auto queryable = dynamicPointerCast<Monitor::IMonitorQueryable>(m);
+        RASSERT(queryable, "CMonitor does not implement IMonitorQueryable");
+        queryableMonitors.push_back(queryable);
+    }
+
+    // Agent monitors (src/actors) are kept apart from the human's.
+    for (const auto& m : m_tracker.agentMonitors()) {
+        if ((ACTOR && Actors::actorOf(m) != *ACTOR) || (!m_includeDisabled && (!m->m_enabled || m->isMirror())))
+            continue;
+
         auto queryable = dynamicPointerCast<Monitor::IMonitorQueryable>(m);
         RASSERT(queryable, "CMonitor does not implement IMonitorQueryable");
         queryableMonitors.push_back(queryable);

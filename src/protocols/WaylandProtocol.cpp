@@ -1,7 +1,12 @@
 #include "WaylandProtocol.hpp"
 #include "../Compositor.hpp"
 
-static void bindManagerInternal(wl_client* client, void* data, uint32_t ver, uint32_t id) {
+#include <unordered_set>
+
+// Every live protocol, so the global filter can tell our globals' user data from others'.
+static std::unordered_set<const void*> s_protocols;
+
+static void                            bindManagerInternal(wl_client* client, void* data, uint32_t ver, uint32_t id) {
     sc<IWaylandProtocol*>(data)->bindManager(client, data, ver, id);
 }
 
@@ -20,8 +25,12 @@ void IWaylandProtocol::onDisplayDestroy() {
     }
 }
 
-IWaylandProtocol::IWaylandProtocol(const wl_interface* iface, const int& ver, const std::string& name) :
-    m_name(name), m_global(wl_global_create(g_pCompositor->m_wlDisplay, iface, ver, this, &bindManagerInternal)) {
+IWaylandProtocol::IWaylandProtocol(const wl_interface* iface, const int& ver, const std::string& name, FClientFilter clientFilter) :
+    m_name(name), m_clientFilter(std::move(clientFilter)) {
+    // wl_global_create already asks the global filter about the new global, so the protocol
+    // must be known before.
+    s_protocols.insert(sc<const void*>(this));
+    m_global = wl_global_create(g_pCompositor->m_wlDisplay, iface, ver, this, &bindManagerInternal);
 
     if UNLIKELY (!m_global) {
         LOG(Log::ERR, "could not create a global [{}]", m_name);
@@ -38,6 +47,23 @@ IWaylandProtocol::IWaylandProtocol(const wl_interface* iface, const int& ver, co
 
 IWaylandProtocol::~IWaylandProtocol() {
     onDisplayDestroy();
+    s_protocols.erase(sc<const void*>(this));
+}
+
+IWaylandProtocol* IWaylandProtocol::fromGlobal(const wl_global* global) {
+    if (!global)
+        return nullptr;
+
+    const auto DATA = wl_global_get_user_data(global);
+    return s_protocols.contains(DATA) ? sc<IWaylandProtocol*>(DATA) : nullptr;
+}
+
+bool IWaylandProtocol::hasClientFilter() const {
+    return !!m_clientFilter;
+}
+
+bool IWaylandProtocol::visibleTo(const wl_client* client) const {
+    return !m_clientFilter || m_clientFilter(client);
 }
 
 void IWaylandProtocol::removeGlobal() {

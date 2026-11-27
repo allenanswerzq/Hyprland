@@ -4,11 +4,12 @@
 #include <cstdint>
 #include "WaylandProtocol.hpp"
 #include "security-context-v1.hpp"
+#include "../actors/ActorTypes.hpp"
 #include <hyprutils/os/FileDescriptor.hpp>
 
 class CSecurityContext {
   public:
-    CSecurityContext(SP<CWpSecurityContextV1> resource_, int listenFD_, int closeFD_);
+    CSecurityContext(SP<CWpSecurityContextV1> resource_, int listenFD_, int closeFD_, Actors::ActorID owner);
     ~CSecurityContext();
 
     bool                           good();
@@ -25,6 +26,7 @@ class CSecurityContext {
 
   private:
     SP<CWpSecurityContextV1> m_resource;
+    Actors::ActorID          m_owner = Actors::HUMAN_ACTOR_ID;
 
     wl_event_source*         m_listenSource = nullptr;
     wl_event_source*         m_closeSource  = nullptr;
@@ -50,7 +52,7 @@ struct SCSecurityContextSandboxedClientDestroyWrapper {
 
 class CSecurityContextSandboxedClient {
   public:
-    static SP<CSecurityContextSandboxedClient> create(Hyprutils::OS::CFileDescriptor clientFD);
+    static SP<CSecurityContextSandboxedClient> create(Hyprutils::OS::CFileDescriptor clientFD, Actors::ActorID owner);
     ~CSecurityContextSandboxedClient();
 
     void                                           onDestroy();
@@ -58,7 +60,7 @@ class CSecurityContextSandboxedClient {
     SCSecurityContextSandboxedClientDestroyWrapper m_destroyListener;
 
   private:
-    CSecurityContextSandboxedClient(Hyprutils::OS::CFileDescriptor clientFD_);
+    CSecurityContextSandboxedClient(Hyprutils::OS::CFileDescriptor clientFD_, Actors::ActorID owner);
 
     wl_client*                     m_client = nullptr;
     Hyprutils::OS::CFileDescriptor m_clientFD;

@@ -1,0 +1,156 @@
+# Parallel's release. Pushing a tag like parallel-v0.57.0-3 builds this
+# branch on Arch Linux from Omarchy's mirror, the packages an Omarchy machine
+# runs, and attaches hyprland-parallel-<version>.tar.gz to the tag's release.
+#
+# The tarball holds bin/Hyprland, bin/hyprctl and, in lib/, every library they
+# link except the ones the machine itself must provide (host_packages below):
+# glibc and the compiler's runtime, the GPU drivers, input devices, systemd,
+# Wayland and X11, and fonts and text drawing. Everything else (the Hypr
+# libraries, abseil, re2, ICU, libxml2, OpenSSL, ...) changes its soname
+# whenever Arch moves on, so an Omarchy update that brings new ones leaves this
+# Hyprland running as it was built. Aquamarine and Hyprutils are upstream's, at
+# the revisions flake.lock pins and CI tests; the rest are the mirror's.
+name: Parallel release
+
+on:
+  push:
+    tags: ["parallel-v*"]
+
+permissions:
+  contents: write
+
+env:
+  AQUAMARINE_REPO: https://github.com/hyprwm/aquamarine
+  AQUAMARINE_REV: 7c1c55b2a76ddb9f6602f8c0886ecf1b899529f9
+  HYPRUTILS_VERSION: v0.14.4
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install Omarchy's packages
+        run: |
+          echo 'Server = https://stable-mirror.omarchy.org/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+          # The image can be newer than the mirror. Arch's OpenSSL 4 moved
+          # OpenSSL 3's libraries to a package openssl-3, which the mirror's
+          # openssl 3 then finds in its way; the mirror's take their place.
+          pacman -Syyuu --noconfirm --overwrite /usr/lib/libcrypto.so.3 --overwrite /usr/lib/libssl.so.3
+          # Arch's hyprland brings the libraries Hyprland runs with; the rest
+          # are what Arch builds it with.
+          pacman -S --noconfirm --needed git github-cli patchelf hyprland \
+            cmake glaze hyprland-protocols hyprwayland-scanner libcanberra meson ninja xorgproto
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build Hyprutils
+        run: |
+          git clone --depth 1 -b "$HYPRUTILS_VERSION" https://github.com/hyprwm/hyprutils /tmp/hyprutils
+          cmake -S /tmp/hyprutils -B /tmp/hyprutils/build -G Ninja \
+            -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr -D BUILD_TESTING=OFF
+          cmake --build /tmp/hyprutils/build
+          cmake --install /tmp/hyprutils/build
+
+      - name: Build Aquamarine
+        run: |
+          git clone "$AQUAMARINE_REPO" /tmp/aquamarine
+          git -C /tmp/aquamarine checkout "$AQUAMARINE_REV"
+          cmake -S /tmp/aquamarine -B /tmp/aquamarine/build -G Ninja \
+            -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr
+          cmake --build /tmp/aquamarine/build
+          cmake --install /tmp/aquamarine/build
+
+      - name: Build Hyprland
+        run: |
+          # As Arch does: its glaze is newer than the range Hyprland asks for.
+          sed -i '/find_package.glaze/s/7...<8 //' {.,hyprpm,start}/CMakeLists.txt
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr
+          cmake --build build --target Hyprland hyprctl
+
+      - name: Pack
+        run: |
+          version=${GITHUB_REF_NAME#parallel-v}
+          name=hyprland-parallel-$version
+          mkdir -p "$name/bin" "$name/lib"
+          cp build/Hyprland build/hyprctl/hyprctl "$name/bin/"
+
+          # Libraries from these packages stay the machine's: drivers and data
+          # must match it, and their sonames hold for years.
+          host_packages=" glibc gcc-libs libgcc libstdc++ libgomp libglvnd mesa libdrm
+            systemd-libs seatd libinput mtdev libevdev libwacom libgudev wayland libxcb
+            libx11 libxau libxdmcp libxext libxfixes libxrender libxcursor xcb-util-errors
+            xcb-util-wm libxkbcommon fontconfig freetype2 harfbuzz graphite pango
+            cairo pixman glib2 libffi pcre2 util-linux-libs zlib bzip2 xz zstd
+            brotli libpng expat libcanberra libvorbis libogg libtool tdb fribidi
+            libthai libdatrie gdk-pixbuf2 libseccomp "
+          host_packages=" $(echo $host_packages) "
+          package_of() { pacman -Qoq "$1" 2> /dev/null || echo built; }
+          libraries_of() { ldd "$@" | awk '$3 ~ /^\// { print $3 }' | sort -u; }
+          libraries_of build/Hyprland build/hyprctl/hyprctl > needed.txt
+          # What a machine's library links must be the machine's too: a newer
+          # one of its own could need more of it than a bundled copy has. So
+          # the packages host libraries link join the host, until none do.
+          while :; do
+            added=""
+            while read -r library; do
+              [[ $host_packages == *" $(package_of "$library") "* ]] || continue
+              while read -r dependency; do
+                package=$(package_of "$dependency")
+                if [[ $host_packages != *" $package "* ]]; then
+                  host_packages+="$package "
+                  added+=" $package"
+                fi
+              done < <(libraries_of "$library")
+            done < needed.txt
+            [[ -n $added ]] || break
+            echo "host, as host libraries link them:$added"
+          done
+          while read -r library; do
+            package=$(package_of "$library")
+            if [[ $host_packages != *" $package "* ]]; then
+              echo "bundle $library ($package)"
+              cp -L "$library" "$name/lib/"
+            fi
+          done < needed.txt
+
+          strip "$name/bin/Hyprland" "$name/bin/hyprctl" "$name"/lib/*
+          patchelf --set-rpath '$ORIGIN/../lib' "$name/bin/Hyprland" "$name/bin/hyprctl"
+          # A bundled library finds the bundled ones it needs beside itself.
+          for library in "$name"/lib/*; do
+            patchelf --set-rpath '$ORIGIN' "$library"
+          done
+
+          # Every library loads, the bundled ones from the tarball, and only
+          # host packages' from /usr/lib.
+          ldd "$name/bin/Hyprland" "$name/bin/hyprctl" | tee libraries.txt
+          if grep 'not found' libraries.txt; then
+            exit 1
+          fi
+          for library in "$name"/lib/*; do
+            grep -q "$(basename "$library") => .*/$name/" libraries.txt
+          done
+          awk '$3 ~ /^\/usr\// { print $3 }' libraries.txt | sort -u | while read -r library; do
+            package=$(package_of "$library")
+            if [[ $host_packages != *" $package "* ]]; then
+              echo "$library ($package) loads from the machine" >&2
+              exit 1
+            fi
+          done
+
+          tar -czf "$name.tar.gz" "$name"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "TARBALL=$name.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$TARBALL" -R "$GITHUB_REPOSITORY" \
+            --title "Parallel Hyprland $VERSION" \
+            --notes "Hyprland with agent actors (HYPRLAND_AGENT_COUNT) and upstream Aquamarine $AQUAMARINE_REV, built on Omarchy's Arch mirror."

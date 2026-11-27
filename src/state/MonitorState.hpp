@@ -18,6 +18,8 @@ namespace State {
 
         virtual const std::vector<PHLMONITOR>& allMonitors() const override;
         virtual const std::vector<PHLMONITOR>& monitors() const override;
+        virtual const std::vector<PHLMONITOR>& agentMonitors() const override;
+        virtual const std::vector<PHLMONITOR>& renderMonitors() const override;
 
         void                                   add(PHLMONITOR mon);
         void                                   add(SP<Aquamarine::IOutput> output);
@@ -30,9 +32,12 @@ namespace State {
 
       private:
         MONITORID                                  getNextAvailableMonitorID(const std::string& name);
+        void                                       syncRenderMonitors();
 
         std::vector<PHLMONITOR>                    m_realMonitors;
         std::vector<PHLMONITOR>                    m_monitors;
+        std::vector<PHLMONITOR>                    m_agentMonitors;
+        std::vector<PHLMONITOR>                    m_renderMonitors;
 
         std::unordered_map<std::string, MONITORID> m_monitorIDMap;
 

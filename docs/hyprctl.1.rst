@@ -68,6 +68,22 @@ CONTROL COMMANDS
     Enter kill mode, where you can kill an app by clicking on it.
     You can exit by pressing ESCAPE.
 
+**actor** borrow|return *window*
+
+    Borrows an agent window for the human, or returns it to its agent.
+    A borrowed window behaves like a human window until it is returned.
+    *window* is a window selector, for example address:0x1234.
+
+**embed** *window* *host* *x* *y* *width* *height* *sourceX* *sourceY*
+
+    Shows *window* inside *host*, in the box *x*, *y*, *width*, *height* of
+    the host. The point *sourceX*, *sourceY* of the window lands at the box's
+    top left corner. Numbers are logical pixels. Input is not forwarded.
+
+**unembed** *window*
+
+    Stops showing *window* inside its host.
+
 INFO COMMANDS
 =============
 
@@ -86,6 +102,10 @@ INFO COMMANDS
 **clients**
 
     Lists all windows with their properties.
+
+**actors**
+
+    Lists the human, agents, Wayland sockets, and connected client counts.
 
 **devices**
 

@@ -36,8 +36,9 @@ UP<CSocket1>& IPC::Socket1::sock() {
     return socket;
 }
 
-CSocket1::CSocket1() : m_impl(makeUnique<CUnixImpl>()) {
-    registerBuiltinCommands(*this);
+CSocket1::CSocket1(std::string directory, bool builtinCommands) : m_impl(makeUnique<CUnixImpl>(std::move(directory))) {
+    if (builtinCommands)
+        registerBuiltinCommands(*this);
     m_impl->start([this](std::string&& request, pid_t pid) { return dispatch(std::move(request), pid); });
 }
 
