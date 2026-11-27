@@ -2,10 +2,14 @@
 # branch on Arch Linux from Omarchy's mirror, the packages an Omarchy machine
 # runs, and attaches hyprland-parallel-<version>.tar.gz to the tag's release.
 #
-# The tarball holds bin/Hyprland, bin/hyprctl and, in lib/, the Aquamarine and
-# Hyprutils this Hyprland needs, newer than Omarchy's. Hyprland loads those two
-# from beside itself and the rest from /usr/lib, so it runs as it is on Omarchy.
-# Aquamarine is upstream's, at the revision flake.lock pins and CI tests.
+# The tarball holds bin/Hyprland, bin/hyprctl and, in lib/, every library they
+# link except the ones the machine itself must provide (host_packages below):
+# glibc and the compiler's runtime, the GPU drivers, input devices, systemd,
+# Wayland and X11, and fonts and text drawing. Everything else (the Hypr
+# libraries, abseil, re2, ICU, libxml2, OpenSSL, ...) changes its soname
+# whenever Arch moves on, so an Omarchy update that brings new ones leaves this
+# Hyprland running as it was built. Aquamarine and Hyprutils are upstream's, at
+# the revisions flake.lock pins and CI tests; the rest are the mirror's.
 name: Parallel release
 
 on:
@@ -75,24 +79,69 @@ jobs:
           name=hyprland-parallel-$version
           mkdir -p "$name/bin" "$name/lib"
           cp build/Hyprland build/hyprctl/hyprctl "$name/bin/"
-          strip "$name/bin/Hyprland" "$name/bin/hyprctl"
-          patchelf --set-rpath '$ORIGIN/../lib' "$name/bin/Hyprland"
-          patchelf --set-rpath '$ORIGIN/../lib' "$name/bin/hyprctl"
-          for library in aquamarine hyprutils; do
-            soname=$(readelf -d build/Hyprland | grep -o "lib$library\.so\.[0-9]*")
-            cp -L "/usr/lib/$soname" "$name/lib/"
-            strip "$name/lib/$soname"
+
+          # Libraries from these packages stay the machine's: drivers and data
+          # must match it, and their sonames hold for years.
+          host_packages=" glibc gcc-libs libgcc libstdc++ libgomp libglvnd mesa libdrm
+            systemd-libs seatd libinput mtdev libevdev libwacom libgudev wayland libxcb
+            libx11 libxau libxdmcp libxext libxfixes libxrender libxcursor xcb-util-errors
+            xcb-util-wm libxkbcommon fontconfig freetype2 harfbuzz graphite pango
+            cairo pixman glib2 libffi pcre2 util-linux-libs zlib bzip2 xz zstd
+            brotli libpng expat libcanberra libvorbis libogg libtool tdb fribidi
+            libthai libdatrie gdk-pixbuf2 libseccomp "
+          host_packages=" $(echo $host_packages) "
+          package_of() { pacman -Qoq "$1" 2> /dev/null || echo built; }
+          libraries_of() { ldd "$@" | awk '$3 ~ /^\// { print $3 }' | sort -u; }
+          libraries_of build/Hyprland build/hyprctl/hyprctl > needed.txt
+          # What a machine's library links must be the machine's too: a newer
+          # one of its own could need more of it than a bundled copy has. So
+          # the packages host libraries link join the host, until none do.
+          while :; do
+            added=""
+            while read -r library; do
+              [[ $host_packages == *" $(package_of "$library") "* ]] || continue
+              while read -r dependency; do
+                package=$(package_of "$dependency")
+                if [[ $host_packages != *" $package "* ]]; then
+                  host_packages+="$package "
+                  added+=" $package"
+                fi
+              done < <(libraries_of "$library")
+            done < needed.txt
+            [[ -n $added ]] || break
+            echo "host, as host libraries link them:$added"
+          done
+          while read -r library; do
+            package=$(package_of "$library")
+            if [[ $host_packages != *" $package "* ]]; then
+              echo "bundle $library ($package)"
+              cp -L "$library" "$name/lib/"
+            fi
+          done < needed.txt
+
+          strip "$name/bin/Hyprland" "$name/bin/hyprctl" "$name"/lib/*
+          patchelf --set-rpath '$ORIGIN/../lib' "$name/bin/Hyprland" "$name/bin/hyprctl"
+          # A bundled library finds the bundled ones it needs beside itself.
+          for library in "$name"/lib/*; do
+            patchelf --set-rpath '$ORIGIN' "$library"
           done
 
-          # Hyprland must load our Aquamarine and Hyprutils and find every other library.
-          ldd "$name/bin/Hyprland" | tee libraries.txt
-          for library in aquamarine hyprutils; do
-            grep -q "lib$library\.so\.[0-9]* => .*/$name/" libraries.txt
-          done
-          ldd "$name/bin/hyprctl" | tee -a libraries.txt
+          # Every library loads, the bundled ones from the tarball, and only
+          # host packages' from /usr/lib.
+          ldd "$name/bin/Hyprland" "$name/bin/hyprctl" | tee libraries.txt
           if grep 'not found' libraries.txt; then
             exit 1
           fi
+          for library in "$name"/lib/*; do
+            grep -q "$(basename "$library") => .*/$name/" libraries.txt
+          done
+          awk '$3 ~ /^\/usr\// { print $3 }' libraries.txt | sort -u | while read -r library; do
+            package=$(package_of "$library")
+            if [[ $host_packages != *" $package "* ]]; then
+              echo "$library ($package) loads from the machine" >&2
+              exit 1
+            fi
+          done
 
           tar -czf "$name.tar.gz" "$name"
           echo "VERSION=$version" >> "$GITHUB_ENV"
